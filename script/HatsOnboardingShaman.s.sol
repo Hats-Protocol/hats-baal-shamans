@@ -2,10 +2,10 @@
 pragma solidity ^0.8.18;
 
 import { Script, console2 } from "forge-std/Script.sol";
-import { Counter } from "../src/Counter.sol";
+import { HatsOnboardingShaman } from "../src/HatsOnboardingShaman.sol";
 
 contract Deploy is Script {
-  Counter public counter;
+  HatsOnboardingShaman public shaman;
   bytes32 public SALT = keccak256("lets add some salt to this meal");
 
   // default values
@@ -21,14 +21,14 @@ contract Deploy is Script {
     address deployer = vm.rememberKey(privKey);
     vm.startBroadcast(deployer);
 
-    counter = new Counter{ salt: SALT}();
+    shaman = new HatsOnboardingShaman{ salt: SALT}();
 
     vm.stopBroadcast();
 
     if (verbose) {
-      console2.log("Counter:", address(counter));
+      console2.log("HatsOnboardingShaman:", address(shaman));
     }
   }
 }
 
-// forge script script/Deploy.s.sol -f ethereum --broadcast --verify
+// forge script script/HatsOnboardingShaman.s.sol -f ethereum --broadcast --verify

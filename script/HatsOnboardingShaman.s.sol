@@ -9,10 +9,12 @@ contract Deploy is Script {
   bytes32 public SALT = keccak256("lets add some salt to this meal");
 
   // default values
+  string public version = "0.1.0"; // increment with each deploy
   bool private verbose = true;
 
   /// @notice Override default values, if desired
-  function prepare(bool _verbose) public {
+  function prepare(string memory _version, bool _verbose) public {
+    version = _version;
     verbose = _verbose;
   }
 
@@ -21,7 +23,7 @@ contract Deploy is Script {
     address deployer = vm.rememberKey(privKey);
     vm.startBroadcast(deployer);
 
-    shaman = new HatsOnboardingShaman{ salt: SALT}();
+    shaman = new HatsOnboardingShaman{ salt: SALT}(version);
 
     vm.stopBroadcast();
 

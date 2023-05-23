@@ -23,9 +23,11 @@ contract HatsOnboardingShaman is HatsModule {
   //////////////////////////////////////////////////////////////*/
 
   event Onboarded(address member, uint256 sharesMinted);
-  event Offboarded(address[] members, uint256[] sharesDownConverted);
+  event OffboardedBatch(address[] members, uint256[] sharesDownConverted);
+  event OffboardedSingle(address member, uint256 sharesDownConverted);
   event Reboarded(address member, uint256 lootUpConverted);
-  event Kicked(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
+  event KickedBatch(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
+  event KickedSingle(address member, uint256 sharesBurned, uint256 lootBurned);
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
@@ -122,7 +124,7 @@ contract HatsOnboardingShaman is HatsModule {
     BAAL().burnShares(_members, amounts);
     BAAL().mintLoot(_members, amounts);
 
-    emit Offboarded(_members, amounts);
+    emit OffboardedBatch(_members, amounts);
   }
 
   /**
@@ -133,9 +135,7 @@ contract HatsOnboardingShaman is HatsModule {
   function offboard(address _member) external {
     if (HATS().isWearerOfHat(_member, hatId())) revert StillWearsMemberHat(_member);
 
-    address[] memory members = new address[](1);
     uint256[] memory amounts = new uint256[](1);
-    members[0] = _member;
     amounts[0] = SHARES_TOKEN().balanceOf(_member);
 
     if (amounts[0] == 0) revert NoShares(_member);
@@ -143,7 +143,7 @@ contract HatsOnboardingShaman is HatsModule {
     BAAL().burnShares(members, amounts);
     BAAL().mintLoot(members, amounts);
 
-    emit Offboarded(members, amounts);
+    emit OffboardedSingle(_member, amounts[0]);
   }
 
   /**
@@ -193,7 +193,7 @@ contract HatsOnboardingShaman is HatsModule {
     BAAL().burnShares(_members, shares);
     BAAL().burnLoot(_members, loots);
 
-    emit Kicked(_members, shares, loots);
+    emit KickedBatch(_members, shares, loots);
   }
 
   /**
@@ -205,17 +205,15 @@ contract HatsOnboardingShaman is HatsModule {
   function kick(address _member) external {
     if (HATS().isInGoodStanding(_member, hatId())) revert NotInBadStanding(_member);
 
-    address[] memory members = new address[](1);
     uint256[] memory shares = new uint256[](1);
     uint256[] memory loots = new uint256[](1);
-    members[0] = _member;
     shares[0] = SHARES_TOKEN().balanceOf(_member);
     loots[0] = LOOT_TOKEN().balanceOf(_member);
 
     BAAL().burnShares(members, shares);
     BAAL().burnLoot(members, loots);
 
-    emit Kicked(members, shares, loots);
+    emit KickedSingle(member, shares[0], loots[0]);
   }
 
   /*//////////////////////////////////////////////////////////////

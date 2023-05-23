@@ -102,7 +102,7 @@ contract HatsOnboardingShaman is HatsModule {
    * lose their voting power, but keep a record of their previous shares in the form of loot.
    * @param _members The addresses of the members to offboard.
    */
-  function offboard(address[] memory _members) public {
+  function offboard(address[] calldata _members) external {
     uint256 length = _members.length;
     uint256[] memory amounts = new uint256[](length);
 
@@ -131,10 +131,19 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _member The address of the member to offboard.
    */
   function offboard(address _member) external {
-    address[] memory members = new address[](1);
-    members[0] = _member;
+    if (HATS().isWearerOfHat(_member, hatId())) revert StillWearsMemberHat(_member);
 
-    offboard(members);
+    address[] memory members = new address[](1);
+    uint256[] memory amounts = new uint256[](1);
+    members[0] = _member;
+    amounts[0] = SHARES_TOKEN().balanceOf(_member);
+
+    if (amounts[0] == 0) revert NoShares(_member);
+
+    BAAL().burnShares(members, amounts);
+    BAAL().mintLoot(members, amounts);
+
+    emit Offboarded(members, amounts);
   }
 
   /**
@@ -145,8 +154,8 @@ contract HatsOnboardingShaman is HatsModule {
     uint256 amount = LOOT_TOKEN().balanceOf(msg.sender);
     if (amount == 0) revert NoLoot();
 
-    uint256[] memory amounts = new uint256[](1);
     address[] memory members = new address[](1);
+    uint256[] memory amounts = new uint256[](1);
     amounts[0] = amount;
     members[0] = msg.sender;
 
@@ -162,7 +171,7 @@ contract HatsOnboardingShaman is HatsModule {
    * burned.
    * @param _members The addresses of the members to kick.
    */
-  function kick(address[] memory _members) public {
+  function kick(address[] calldata _members) external {
     uint256 length = _members.length;
     uint256[] memory shares = new uint256[](length);
     uint256[] memory loots = new uint256[](length);
@@ -194,10 +203,19 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _member The address of the member to kick.
    */
   function kick(address _member) external {
-    address[] memory members = new address[](1);
-    members[0] = _member;
+    if (HATS().isInGoodStanding(_member, hatId())) revert NotInBadStanding(_member);
 
-    kick(members);
+    address[] memory members = new address[](1);
+    uint256[] memory shares = new uint256[](1);
+    uint256[] memory loots = new uint256[](1);
+    members[0] = _member;
+    shares[0] = SHARES_TOKEN().balanceOf(_member);
+    loots[0] = LOOT_TOKEN().balanceOf(_member);
+
+    BAAL().burnShares(members, shares);
+    BAAL().burnLoot(members, loots);
+
+    emit Kicked(members, shares, loots);
   }
 
   /*//////////////////////////////////////////////////////////////

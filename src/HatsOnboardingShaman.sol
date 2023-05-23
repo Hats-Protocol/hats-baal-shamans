@@ -6,6 +6,16 @@ import { HatsModule } from "hats-module/HatsModule.sol";
 import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
 
+/**
+ * @title Hats Onboarding Shaman
+ * @notice A Baal manager shaman that allows onboarding, offboarding, and other DAO member management
+ * based on Hats Protocol hats. Members must wear the member hat to onboard or reboard, can be offboarded if
+ * they no longer wear the member hat, and kicked completely if they are in bad standing for the member hat.
+ * @author Haberdasher Labs
+ * @author @spengrah
+ * @dev This contract inherits from the HatsModule contract, and is meant to be deployed as a clone from the
+ * HatsModuleFactory.
+ */
 contract HatsOnboardingShaman is HatsModule {
   /*//////////////////////////////////////////////////////////////
                             CUSTOM ERRORS
@@ -73,6 +83,7 @@ contract HatsOnboardingShaman is HatsModule {
   }
 
   /*//////////////////////////////////////////////////////////////
+
                           CONSTRUCTOR
   //////////////////////////////////////////////////////////////*/
 

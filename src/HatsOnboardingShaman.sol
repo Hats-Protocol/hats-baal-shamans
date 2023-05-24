@@ -194,7 +194,7 @@ contract HatsOnboardingShaman is HatsModule {
       shares[i] = SHARES_TOKEN().balanceOf(_members[i]);
       loots[i] = LOOT_TOKEN().balanceOf(_members[i]);
 
-      if (shares[i] + loots[i] == 0) revert NotMember(_members[i]);
+      if (shares[0] + loots[0] == 0) revert NotMember(_members[0]);
 
       unchecked {
         ++i;
@@ -222,6 +222,8 @@ contract HatsOnboardingShaman is HatsModule {
     members[0] = _member;
     shares[0] = SHARES_TOKEN().balanceOf(_member);
     loots[0] = LOOT_TOKEN().balanceOf(_member);
+
+    if (shares[i] + loots[i] == 0) revert NotMember(_members[i]);
 
     BAAL().burnShares(members, shares);
     BAAL().burnLoot(members, loots);

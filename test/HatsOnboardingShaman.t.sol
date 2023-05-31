@@ -28,16 +28,19 @@ contract HatsOnboardingShamanTest is DeployImplementation, Test {
 
   error AlreadyBoarded();
   error NotWearingMemberHat();
+  error NotWearingOwnerHat();
   error StillWearsMemberHat(address member);
   error NoLoot();
   error NoShares(address member);
   error NotMember(address nonMember);
   error NotInBadStanding(address member);
+  error BadStartingShares();
 
   event Onboarded(address member, uint256 sharesMinted);
   event Offboarded(address[] members, uint256[] sharesDownConverted);
   event Reboarded(address member, uint256 lootUpConverted);
   event Kicked(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
+  event StartingSharesSet(uint256 newStartingShares);
 
   function setUp() public virtual {
     // create and activate a fork, at BLOCK_NUMBER
@@ -77,14 +80,21 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
   address public wearer2 = makeAddr("wearer2");
   address public nonWearer = makeAddr("nonWearer");
 
-  function deployInstance(address _baal, uint256 _hatId, uint256 _startingShares) public returns (HatsOnboardingShaman) {
+  address public predictedBaalAddress;
+  address public predictedShamanAddress;
+
+  function deployInstance(address _baal, uint256 _memberHat, uint256 _ownerHat, uint256 _startingShares)
+    public
+    returns (HatsOnboardingShaman)
+  {
     // encode the other immutable args as packed bytes
-    otherImmutableArgs = abi.encodePacked(_baal, _startingShares);
+    otherImmutableArgs = abi.encodePacked(_baal, _ownerHat);
     // encoded the initData as unpacked bytes -- for HatsOnboardingShaman, we just need any non-empty bytes
-    initData = abi.encode("init");
+    initData = abi.encode(_startingShares);
     // deploy the instance
-    return
-      HatsOnboardingShaman(deployModuleInstance(factory, address(implementation), _hatId, otherImmutableArgs, initData));
+    return HatsOnboardingShaman(
+      deployModuleInstance(factory, address(implementation), _memberHat, otherImmutableArgs, initData)
+    );
   }
 
   function deployBaalWithShaman(string memory _name, string memory _symbol, bytes32 _saltNonce, address _shaman)
@@ -151,12 +161,11 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
     vm.stopPrank();
 
     // predict the baal's address
-    address predictedBaalAddress = predictBaalAddress(SALT);
+    predictedBaalAddress = predictBaalAddress(SALT);
 
     // predict the shaman's address via the hats module factory
-    address predictedShamanAddress = factory.getHatsModuleAddress(
-      address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, startingShares)
-    );
+    predictedShamanAddress =
+      factory.getHatsModuleAddress(address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, tophat));
 
     // deploy a test baal with the predicted shaman address
     baal = deployBaalWithShaman("TEST_BAAL", "TEST_BAAL", SALT, predictedShamanAddress);
@@ -165,7 +174,7 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
     lootToken = IBaalToken(baal.lootToken());
 
     // deploy the shaman instance
-    shaman = deployInstance(predictedBaalAddress, memberHat, startingShares);
+    shaman = deployInstance(predictedBaalAddress, memberHat, tophat, startingShares);
 
     // ensure that the actual and predicted addresses are the same
     require(address(baal) == predictedBaalAddress, "actual and predicted baal addresses do not match");
@@ -182,7 +191,7 @@ contract Deployment is WithInstanceTest {
   }
 
   function test_startingShares() public {
-    assertEq(shaman.STARTING_SHARES(), startingShares);
+    assertEq(shaman.startingShares(), startingShares);
   }
 
   function test_baal() public {
@@ -196,6 +205,12 @@ contract Deployment is WithInstanceTest {
 
   function test_lootToken() public {
     assertEq(address(shaman.LOOT_TOKEN()), address(lootToken));
+  }
+
+  function test_badStartingShares_reverts() public {
+    vm.expectRevert(BadStartingShares.selector);
+    // try deploying a new shaman for a different member hat and too-low starting shares
+    deployInstance(predictedBaalAddress, memberHat + 1, tophat, 1 ether - 1);
   }
 }
 
@@ -953,5 +968,30 @@ contract Kicking is WithInstanceTest {
     assertEq(lootToken.balanceOf(wearer1), 0);
     assertEq(sharesToken.balanceOf(wearer2), 0);
     assertEq(lootToken.balanceOf(wearer2), 0);
+  }
+}
+
+contract SetStartingShares is WithInstanceTest {
+  uint256 public newStartingShares;
+
+  function test_owner_canSetStartingShares() public {
+    newStartingShares = startingShares + 1;
+
+    vm.prank(dao);
+    vm.expectEmit(true, true, true, true);
+    emit StartingSharesSet(newStartingShares);
+    shaman.setStartingShares(newStartingShares);
+
+    assertEq(shaman.startingShares(), newStartingShares);
+  }
+
+  function test_nonOwner_reverts() public {
+    newStartingShares = startingShares + 1;
+
+    vm.prank(nonWearer);
+    vm.expectRevert(NotWearingOwnerHat.selector);
+    shaman.setStartingShares(newStartingShares);
+
+    assertEq(shaman.startingShares(), startingShares);
   }
 }

@@ -42,6 +42,12 @@ contract HatsOnboardingShaman is HatsModule {
   event StartingSharesSet(uint256 newStartingShares);
 
   /*//////////////////////////////////////////////////////////////
+                        INTERNAL CONSTANTS
+  //////////////////////////////////////////////////////////////*/
+
+  uint256 internal constant MIN_STARTING_SHARES = 1e18;
+
+  /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
   //////////////////////////////////////////////////////////////*/
 
@@ -108,7 +114,7 @@ contract HatsOnboardingShaman is HatsModule {
 
     uint256 startingShares_ = abi.decode(_initData, (uint256));
 
-    if (startingShares_ < 1 ether) revert BadStartingShares();
+    if (startingShares_ < MIN_STARTING_SHARES) revert BadStartingShares();
 
     // set the starting shares
     startingShares = startingShares_;
@@ -283,7 +289,7 @@ contract HatsOnboardingShaman is HatsModule {
    */
   function setStartingShares(uint256 _startingShares) external {
     if (!HATS().isWearerOfHat(msg.sender, OWNER_HAT())) revert NotWearingOwnerHat();
-    if (_startingShares < 1 ether) revert BadStartingShares();
+    if (_startingShares < MIN_STARTING_SHARES) revert BadStartingShares();
     // set the new starting shares value
     startingShares = _startingShares;
     // log the change

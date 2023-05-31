@@ -83,6 +83,8 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
   address public predictedBaalAddress;
   address public predictedShamanAddress;
 
+  uint256 public constant MIN_STARTING_SHARES = 1e18;
+
   function deployInstance(address _baal, uint256 _memberHat, uint256 _ownerHat, uint256 _startingShares)
     public
     returns (HatsOnboardingShaman)
@@ -990,6 +992,16 @@ contract SetStartingShares is WithInstanceTest {
 
     vm.prank(nonWearer);
     vm.expectRevert(NotWearingOwnerHat.selector);
+    shaman.setStartingShares(newStartingShares);
+
+    assertEq(shaman.startingShares(), startingShares);
+  }
+
+  function test_owner_tooLow_reverts() public {
+    newStartingShares = MIN_STARTING_SHARES - 1;
+
+    vm.prank(dao);
+    vm.expectRevert(BadStartingShares.selector);
     shaman.setStartingShares(newStartingShares);
 
     assertEq(shaman.startingShares(), startingShares);

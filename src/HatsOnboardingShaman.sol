@@ -38,9 +38,11 @@ contract HatsOnboardingShaman is HatsModule {
   //////////////////////////////////////////////////////////////*/
 
   event Onboarded(address member, uint256 sharesMinted);
-  event Offboarded(address[] members, uint256[] sharesDownConverted);
+  event Offboarded(address member, uint256 sharesDownConverted);
+  event OffboardedBatch(address[] members, uint256[] sharesDownConverted);
   event Reboarded(address member, uint256 lootUpConverted);
-  event Kicked(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
+  event Kicked(address member, uint256 sharesBurned, uint256 lootBurned);
+  event KickedBatch(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
   event StartingSharesSet(uint256 newStartingShares);
 
   /*//////////////////////////////////////////////////////////////
@@ -89,17 +91,12 @@ contract HatsOnboardingShaman is HatsModule {
     return _getArgAddress(124);
   }
 
-  // TODO add a ROLE_STAKING_SHAMAN constant. If this value is nonzero, then also handle staked shares when offboarding
-  // or kicking members
-
   /**
    * @dev These are not stored as immutable args in order to enable instances to be set as shamans in new Baal
    * deployments via `initializationActions`, which is not possible if these values determine an instance's address.
    */
   IBaalToken public SHARES_TOKEN;
   IBaalToken public LOOT_TOKEN;
-
-  // address public ROLE_STAKING_SHAMAN;
 
   /*//////////////////////////////////////////////////////////////
                           MUTABLE STATE
@@ -140,7 +137,16 @@ contract HatsOnboardingShaman is HatsModule {
    * number of shares
    */
   function onboard() external wearsMemberHat(msg.sender) {
-    if (SHARES_TOKEN.balanceOf(msg.sender) + LOOT_TOKEN.balanceOf(msg.sender) > 0) revert AlreadyBoarded();
+    uint256 stakedAmount;
+    if (ROLE_STAKING_SHAMAN() != address(0)) {
+      (stakedAmount,) = _getStakedSharesAndProxy(msg.sender);
+    }
+    unchecked {
+      /// @dev safe, since if this overflows, we know msg.sender is a member, so we should not revert
+      if (SHARES_TOKEN.balanceOf(msg.sender) + stakedAmount + LOOT_TOKEN.balanceOf(msg.sender) > 0) {
+        revert AlreadyBoarded();
+      }
+    }
 
     uint256[] memory amounts = new uint256[](1);
     address[] memory members = new address[](1);
@@ -162,7 +168,6 @@ contract HatsOnboardingShaman is HatsModule {
       revert BatchActionsNotSupportedWithRoleStakingShaman(ROLE_STAKING_SHAMAN());
     }
 
-    // TODO is there any problem if the array is empty?
     uint256 length = _members.length;
     uint256[] memory amounts = new uint256[](length);
     uint256 amount;
@@ -185,7 +190,7 @@ contract HatsOnboardingShaman is HatsModule {
     BAAL().burnShares(_members, amounts);
     BAAL().mintLoot(_members, amounts);
 
-    emit Offboarded(_members, amounts);
+    emit OffboardedBatch(_members, amounts);
   }
 
   function _getStakedSharesAndProxy(address member) internal view returns (uint256 amount, address proxy) {
@@ -226,12 +231,16 @@ contract HatsOnboardingShaman is HatsModule {
       address[] memory lootMembers = new address[](1);
       uint256[] memory lootAmounts = new uint256[](1);
       lootMembers[0] = _member;
-      lootAmounts[0] = amount + stakedAmount;
+      unchecked {
+        /// @dev Safe, since stakedAmount is always <= the original amount staked by the _member, so it can't overflow
+        amount += stakedAmount;
+      }
+      lootAmounts[0] = amount;
 
       BAAL().burnShares(shareMembers, shareAmounts);
       BAAL().mintLoot(lootMembers, lootAmounts);
 
-      emit Offboarded(lootMembers, lootAmounts);
+      emit Offboarded(_member, amount);
     } else {
       if (amount == 0) revert NoShares(_member);
 
@@ -244,7 +253,7 @@ contract HatsOnboardingShaman is HatsModule {
       BAAL().burnShares(shareMembers, shareAmounts);
       BAAL().mintLoot(shareMembers, shareAmounts);
 
-      emit Offboarded(shareMembers, shareAmounts);
+      emit Offboarded(_member, amount);
     }
   }
 
@@ -292,7 +301,10 @@ contract HatsOnboardingShaman is HatsModule {
       shareAmount = SHARES_TOKEN.balanceOf(member);
       lootAmount = LOOT_TOKEN.balanceOf(member);
 
-      if (shareAmount + lootAmount == 0) revert NotMember(member);
+      unchecked {
+        /// @dev safe, since if this overflows, we know _member is a member, so we should not revert
+        if (shareAmount + lootAmount == 0) revert NotMember(member);
+      }
 
       shares[i] = shareAmount;
       loots[i] = lootAmount;
@@ -305,7 +317,7 @@ contract HatsOnboardingShaman is HatsModule {
     BAAL().burnShares(_members, shares);
     BAAL().burnLoot(_members, loots);
 
-    emit Kicked(_members, shares, loots);
+    emit KickedBatch(_members, shares, loots);
   }
 
   /**
@@ -317,54 +329,70 @@ contract HatsOnboardingShaman is HatsModule {
   function kick(address _member) external {
     if (HATS().isInGoodStanding(_member, hatId())) revert NotInBadStanding(_member);
 
-    uint256 amount;
     uint256 stakedAmount;
     address proxy;
-    address[] memory members;
-    uint256[] memory shares;
-    uint256[] memory loots;
 
     if (ROLE_STAKING_SHAMAN() != address(0)) {
       (stakedAmount, proxy) = _getStakedSharesAndProxy(_member);
     }
 
+    uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
+    uint256 lootAmount = LOOT_TOKEN.balanceOf(_member);
+    address[] memory members;
+    uint256[] memory shares;
+    uint256[] memory loots;
+
     if (stakedAmount > 0) {
       // there are staked shares, so the shares in the proxy must be burned as well
-      members = new address[](2);
-      shares = new uint256[](2);
-      members[0] = _member;
-      members[1] = proxy;
-      amount = SHARES_TOKEN.balanceOf(_member);
-      shares[0] = amount;
-      shares[1] = stakedAmount;
-
-      // there's just a single loot amount, so we need arrays of length 1
-      loots = new uint256[](1);
-      address[] memory lootMembers = new address[](1);
-      lootMembers[0] = _member;
-      loots[0] = amount;
+      if (shareAmount > 0) {
+        members = new address[](1);
+        shares = new uint256[](1);
+        members[0] = proxy;
+        shares[0] = stakedAmount;
+      } else {
+        members = new address[](2);
+        shares = new uint256[](2);
+        members[0] = _member;
+        members[1] = proxy;
+        shares[0] = shareAmount;
+        shares[1] = stakedAmount;
+      }
 
       BAAL().burnShares(members, shares);
-      BAAL().burnLoot(lootMembers, loots);
 
-      emit Kicked(members, shares, loots); // FIXME these arrays are mismatched
+      if (lootAmount > 0) {
+        // there's just a single loot amount, so we need arrays of length 1
+        loots = new uint256[](1);
+        address[] memory lootMembers = new address[](1);
+        lootMembers[0] = _member;
+        loots[0] = lootAmount;
+
+        BAAL().burnLoot(lootMembers, loots);
+      }
+
+      emit Kicked(_member, shareAmount + stakedAmount, lootAmount);
     } else {
       members = new address[](1);
       shares = new uint256[](1);
       loots = new uint256[](1);
       members[0] = _member;
-      uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
-      uint256 lootAmount = LOOT_TOKEN.balanceOf(_member);
 
-      if (shareAmount + lootAmount == 0) revert NotMember(_member);
+      unchecked {
+        /// @dev safe, since if this overflows, we know _member is a member, so we should not revert
+        if (shareAmount + lootAmount == 0) revert NotMember(_member);
+      }
 
-      shares[0] = shareAmount;
-      loots[0] = lootAmount;
+      if (shareAmount > 0) {
+        shares[0] = shareAmount;
+        BAAL().burnShares(members, shares);
+      }
 
-      BAAL().burnShares(members, shares);
-      BAAL().burnLoot(members, loots);
+      if (lootAmount > 0) {
+        loots[0] = lootAmount;
+        BAAL().burnLoot(members, loots);
+      }
 
-      emit Kicked(members, shares, loots);
+      emit Kicked(_member, shareAmount, lootAmount);
     }
   }
 

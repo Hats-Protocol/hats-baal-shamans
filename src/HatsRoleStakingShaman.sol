@@ -308,6 +308,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
                           STAKING LOGIC
   //////////////////////////////////////////////////////////////*/
 
+  // TODO standalone stake function
+
   /**
    * @notice Stakes shares for a role, defined by a hatId
    */
@@ -367,8 +369,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
     // otherwise, proceed with the unstake, moving their stake for _hat to the cooldown queue
     stake.unstakingAmount = _amount;
-    stake.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod();
-    stake.stakedAmount -= _amount;
+    stake.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod(); // TODO optimize
+    stake.stakedAmount -= _amount; // TODO optimize
 
     // log the unstake initiation
     emit UnstakeBegun(msg.sender, _hat, _amount);
@@ -392,7 +394,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     stake.canUnstakeAfter = 0;
 
     // remove the cooled-down stake from their total
-    memberStakes[_member] -= amount;
+    memberStakes[_member] -= amount; // TODO optimize
 
     // transfer their amount of shares from the msg.sender's staking proxy to msg.sender
     _transferShares(_calculateStakingProxyAddress(_member), _member, amount);
@@ -414,10 +416,10 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
   function _addStake(address _member, uint256 _hat, uint112 _amount) internal {
     // add _amount to _member's stake for _hat
-    roleStakes[_hat][_member].stakedAmount += _amount;
+    roleStakes[_hat][_member].stakedAmount += _amount; // TODO optimize
 
     // add _amount to _member's total stake
-    memberStakes[_member] += _amount;
+    memberStakes[_member] += _amount; // TODO optimize
 
     // log the stake
     emit Staked(_member, _hat, _amount);
@@ -430,7 +432,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     stake.stakedAmount = 0;
 
     // subtract _amount from _member's total stake
-    memberStakes[_member] -= amount;
+    memberStakes[_member] -= amount; // TODO optimize
 
     // clear any cooldown for _hat
     stake.unstakingAmount = 0;
@@ -456,7 +458,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
    * before they can complete their unstake.
    */
   function cooldownPeriod() public view returns (uint32) {
-    return uint32(BAAL().votingPeriod() + BAAL().gracePeriod()) + cooldownBuffer;
+    return uint32(BAAL().votingPeriod() + BAAL().gracePeriod()) + cooldownBuffer; // TODO optimize
   }
 
   function getStakedSharesAndProxy(address _member) public view returns (uint256 amount, address stakingProxy) {
@@ -465,7 +467,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /*//////////////////////////////////////////////////////////////
-                          SHAMAN LOGIC
+                        INTERNAL SHAMAN LOGIC
   //////////////////////////////////////////////////////////////*/
 
   function _transferShares(address _from, address _to, uint112 _amount) internal {
@@ -498,7 +500,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /*//////////////////////////////////////////////////////////////
-                      SHARE STAKING PROXY LOGIC
+                  INTERNAL SHARE STAKING PROXY LOGIC
   //////////////////////////////////////////////////////////////*/
 
   function _calculateStakingProxyAddress(address _member) internal view returns (address) {

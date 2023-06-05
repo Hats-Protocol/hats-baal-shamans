@@ -3,10 +3,11 @@ pragma solidity ^0.8.18;
 
 // import { console2 } from "forge-std/Test.sol"; // remove before deploy
 import { HatsModule, IHats } from "hats-module/HatsModule.sol";
-import { LibClone } from "solady/utils/LibClone.sol";
+import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
+import { IHatsEligibility } from "hats-protocol/Interfaces/IHatsEligibility.sol";
 import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
-import { IHatsEligibility } from "hats-protocol/Interfaces/IHatsEligibility.sol";
+import { LibClone } from "solady/utils/LibClone.sol";
 import { LibHatId } from "src/LibHatId.sol";
 import { StakingProxy } from "src/StakingProxy.sol";
 
@@ -18,7 +19,7 @@ import { StakingProxy } from "src/StakingProxy.sol";
  * @dev This contract inherits from the HatsModule contract, and is meant to be deployed as a clone from the
  * HatsModuleFactory.
  */
-contract HatsRoleStakingShaman is HatsModule, IHatsEligibility {
+contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
   /*//////////////////////////////////////////////////////////////
                             CUSTOM ERRORS
   //////////////////////////////////////////////////////////////*/
@@ -33,30 +34,6 @@ contract HatsRoleStakingShaman is HatsModule, IHatsEligibility {
   error NotJudge();
   error NotHatAdmin();
   error HatImmutable();
-
-  /*//////////////////////////////////////////////////////////////
-                              EVENTS
-  //////////////////////////////////////////////////////////////*/
-
-  event Staked(address member, uint256 hat, uint112 amount);
-  event UnstakeBegun(address member, uint256 hat, uint112 amount);
-  event UnstakeCompleted(address member, uint256 hat, uint112 amount);
-  event Slashed(address member, uint256 hat, uint112 amount);
-  event MinStakeSet(uint256 _hat, uint112 _minStake);
-
-  /*//////////////////////////////////////////////////////////////
-                            DATA MODELS
-  //////////////////////////////////////////////////////////////*/
-
-  /**
-   * @dev Packed into a single storage slot
-   * @custom:member amount The amount of tokens staked
-   */
-  struct Stake {
-    uint112 stakedAmount;
-    uint112 unstakingAmount;
-    uint32 canUnstakeAfter; // won't overflow for ~80+ years
-  }
 
   /*//////////////////////////////////////////////////////////////
                         INTERNAL CONSTANTS
@@ -77,6 +54,8 @@ contract HatsRoleStakingShaman is HatsModule, IHatsEligibility {
    * For more, see here: https://github.com/Saw-mon-and-Natalie/clones-with-immutable-args
    *
    * --------------------------------------------------------------------+
+   * CLONE IMMUTABLE "STORAGE"                                           |
+   * --------------------------------------------------------------------+
    * Offset | Constant             | Type    | Length | Source Contract  |
    * --------------------------------------------------------------------|
    * 0      | IMPLEMENTATION       | address | 20     | HatsModule       |
@@ -90,52 +69,51 @@ contract HatsRoleStakingShaman is HatsModule, IHatsEligibility {
    * --------------------------------------------------------------------+
    */
 
-  /// @dev The hat this shaman wears, that will be the admin of the hats this shaman creates and manages
-  // function hatId() public pure returns (uint256) {
-  //   return _getArgUint256(40);
-  // }
-
+  /// @inheritdoc IRoleStakingShaman
   function BAAL() public pure returns (IBaal) {
     return IBaal(_getArgAddress(72));
   }
 
+  /// @inheritdoc IRoleStakingShaman
   function OWNER_HAT() public pure returns (uint256) {
     return _getArgUint256(92);
   }
 
+  /// @inheritdoc IRoleStakingShaman
   function STAKING_PROXY_IMPL() public pure returns (address) {
     return _getArgAddress(124);
   }
 
+  /// @inheritdoc IRoleStakingShaman
   function ROLE_MANAGER_HAT() public pure returns (uint256) {
     return _getArgUint256(144);
   }
 
+  /// @inheritdoc IRoleStakingShaman
   function JUDGE_HAT() public pure returns (uint256) {
     return _getArgUint256(164);
   }
 
-  /**
-   * @dev These are not stored as immutable args in order to enable instances to be set as shamans in new Baal
-   * deployments via `initializationActions`, which is not possible if these values determine an instance's address.
-   */
+  /// @inheritdoc IRoleStakingShaman
   IBaalToken public SHARES_TOKEN;
-  // IBaalToken public LOOT_TOKEN;
 
   /*//////////////////////////////////////////////////////////////
                           MUTABLE STATE
   //////////////////////////////////////////////////////////////*/
 
-  /// @notice The minimum amount of tokens that must be staked in order to be eligible for a role
-  /// @dev Roles with minStake == 0 are considered invalid with respect to this contract
+  /// @inheritdoc IRoleStakingShaman
   mapping(uint256 hat => uint112 minStake) public minStakes;
 
+  /// @inheritdoc IRoleStakingShaman
   mapping(uint256 hat => mapping(address member => Stake stake)) public roleStakes;
 
+  /// @inheritdoc IRoleStakingShaman
   mapping(uint256 hat => mapping(address member => bool badStanding)) public badStandings;
 
+  /// @inheritdoc IRoleStakingShaman
   mapping(address member => uint256 totalStaked) public memberStakes;
 
+  /// @inheritdoc IRoleStakingShaman
   uint32 public cooldownBuffer;
 
   /*//////////////////////////////////////////////////////////////
@@ -148,9 +126,7 @@ contract HatsRoleStakingShaman is HatsModule, IHatsEligibility {
                           INITIALIZER
   //////////////////////////////////////////////////////////////*/
 
-  /**
-   * @inheritdoc HatsModule
-   */
+  /// @inheritdoc HatsModule
   function setUp(bytes calldata _initData) public override initializer {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
     // LOOT_TOKEN = IBaalToken(BAAL().lootToken());

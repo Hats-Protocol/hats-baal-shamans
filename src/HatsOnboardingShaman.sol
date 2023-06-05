@@ -3,12 +3,9 @@ pragma solidity ^0.8.18;
 
 // import { console2 } from "forge-std/Test.sol"; // remove before deploy
 import { HatsModule } from "hats-module/HatsModule.sol";
+import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
 import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
-
-interface IRoleStakingShaman {
-  function getStakedSharesAndProxy(address member) external view returns (uint256, address);
-}
 
 /**
  * @title Hats Onboarding Shaman
@@ -120,9 +117,7 @@ contract HatsOnboardingShaman is HatsModule {
                           INITIALIZER
   //////////////////////////////////////////////////////////////*/
 
-  /**
-   * @inheritdoc HatsModule
-   */
+  /// @inheritdoc HatsModule
   function setUp(bytes calldata _initData) public override initializer {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
     LOOT_TOKEN = IBaalToken(BAAL().lootToken());

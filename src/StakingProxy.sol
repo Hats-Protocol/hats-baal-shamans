@@ -10,7 +10,7 @@ contract StakingProxy is Clone {
                             CUSTOM ERRORS
   //////////////////////////////////////////////////////////////*/
 
-  error NotRoleStakingShaman();
+  error NotAuthorized();
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
@@ -51,9 +51,17 @@ contract StakingProxy is Clone {
                           DELEGATE LOGIC
   //////////////////////////////////////////////////////////////*/
 
-  function delegate() external {
-    if (msg.sender != ROLE_STAKING_SHAMAN()) revert NotRoleStakingShaman();
+  /**
+   * @notice Delegates the voting power of the shares to the `_delegate` of {MEMBER()}'s choice
+   */
+  function delegate(address _delegate) external {
+    if (msg.sender != ROLE_STAKING_SHAMAN() && msg.sender != MEMBER()) revert NotAuthorized();
 
-    SHARES_TOKEN().delegate(MEMBER());
+    SHARES_TOKEN().delegate(_delegate);
   }
+
+  // TODO ragequit wrapper?
+  // - maybe with cooldown for withdrawing the ragequitted funds
+  // - but what would happen to the ragequit funds if the member is slashed? They could be transferred back to the
+  // treasury
 }

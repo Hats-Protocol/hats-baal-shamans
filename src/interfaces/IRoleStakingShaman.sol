@@ -26,7 +26,7 @@ interface IRoleStakingShaman {
   struct Stake {
     uint112 stakedAmount;
     uint112 unstakingAmount;
-    uint32 canUnstakeAfter; // won't overflow for ~80+ years
+    uint32 canUnstakeAfter; // won't overflow until 2106, ie 2**32 / 60 / 60 / 24 / 365 = 136 years after epoch
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -58,8 +58,6 @@ interface IRoleStakingShaman {
                           HATTER FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
-  function addRole(uint256 _hat, uint112 _minStake) external;
-
   function createRole(
     string memory _details,
     uint32 _maxSupply,
@@ -79,7 +77,8 @@ interface IRoleStakingShaman {
     string memory _imageURI,
     uint112 _minStake
   ) external;
-  function removeRole(uint256 _hat) external;
+  function registerRole(uint256 _hat, uint112 _minStake) external;
+  function unregisterRole(uint256 _hat) external;
   function setMinStake(uint256 _hat, uint112 _minStake) external;
 
   /*//////////////////////////////////////////////////////////////
@@ -92,7 +91,9 @@ interface IRoleStakingShaman {
                           STAKING FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
-  function stakeForRole(uint256 _hat, uint112 _amount) external;
+  function stakeOnRole(uint256 _hat, uint112 _amount, address _delegate) external;
+  function claimRole(uint256 _hat) external;
+  function stakeAndClaimRole(uint256 _hat, uint112 _amount, address _delegate) external;
   function beginUnstakeFromRole(uint256 _hat, uint112 _amount) external;
   function completeUnstakeFromRole(uint256 _hat, address _member) external;
   function cooldownPeriod() external view returns (uint32);

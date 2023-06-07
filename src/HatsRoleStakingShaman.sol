@@ -63,10 +63,9 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
    * 20     | HATS                 | address | 20     | HatsModule       |
    * 40     | hatId                | uint256 | 32     | HatsModule       |
    * 72     | BAAL                 | address | 20     | this             |
-   * 92     | OWNER_HAT            | uint256 | 32     | this             |
-   * 124    | STAKING_PROXY_IMPL   | address | 20     | this             |
-   * 144    | ROLE_MANAGER_HAT     | uint256 | 32     | this             |
-   * 164    | JUDGE_HAT            | uint256 | 32     | this             |
+   * 92     | STAKING_PROXY_IMPL   | address | 20     | this             |
+   * 112    | ROLE_MANAGER_HAT     | uint256 | 32     | this             |
+   * 144    | JUDGE_HAT            | uint256 | 32     | this             |
    * --------------------------------------------------------------------+
    */
 
@@ -76,23 +75,18 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /// @inheritdoc IRoleStakingShaman
-  function OWNER_HAT() public pure returns (uint256) {
-    return _getArgUint256(92);
-  }
-
-  /// @inheritdoc IRoleStakingShaman
   function STAKING_PROXY_IMPL() public pure returns (address) {
-    return _getArgAddress(124);
+    return _getArgAddress(92);
   }
 
   /// @inheritdoc IRoleStakingShaman
   function ROLE_MANAGER_HAT() public pure returns (uint256) {
-    return _getArgUint256(144);
+    return _getArgUint256(112);
   }
 
   /// @inheritdoc IRoleStakingShaman
   function JUDGE_HAT() public pure returns (uint256) {
-    return _getArgUint256(164);
+    return _getArgUint256(144);
   }
 
   /// @inheritdoc IRoleStakingShaman
@@ -450,7 +444,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
    * subject to a cooldown period, since the stake is no longer an eligibility criterion for the role.
    * @dev Nonetheless, a staker in bad standing is still slashed by this function.
    */
-  function unstakeFromRemovedRole(uint256 _hat) external {
+  function unstakeFromUnregisteredRole(uint256 _hat) external {
     if (minStakes[_hat] > 0) revert RoleStillRegistered();
 
     // check if caller is in bad standing for _hat and slash their stake if so
@@ -534,7 +528,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   function cooldownPeriod() public view returns (uint32) {
     unchecked {
       /// @dev Reasonable Baal voting + grace period will not exceed 2**32 seconds (~136 years)
-      return uint32(BAAL().votingPeriod() + BAAL().gracePeriod()) + cooldownBuffer;
+      return BAAL().votingPeriod() + BAAL().gracePeriod() + cooldownBuffer;
     }
   }
 

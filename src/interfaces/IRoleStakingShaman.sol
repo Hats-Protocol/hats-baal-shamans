@@ -35,7 +35,6 @@ interface IRoleStakingShaman {
 
   function BAAL() external pure returns (IBaal);
   function JUDGE_HAT() external pure returns (uint256);
-  function OWNER_HAT() external pure returns (uint256);
   function ROLE_MANAGER_HAT() external pure returns (uint256);
   function SHARES_TOKEN() external view returns (IBaalToken);
   function STAKING_PROXY_IMPL() external pure returns (address);

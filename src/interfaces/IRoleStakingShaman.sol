@@ -42,7 +42,6 @@ interface IRoleStakingShaman {
   /*//////////////////////////////////////////////////////////////
                           STATE VARIABLES
   //////////////////////////////////////////////////////////////*/
-  function badStandings(uint256 hat, address member) external view returns (bool badStanding);
   function memberStakes(address member) external view returns (uint256 totalStaked);
 
   /// @notice The minimum amount of tokens that must be staked in order to be eligible for a role
@@ -65,7 +64,7 @@ interface IRoleStakingShaman {
     bool _mutable,
     string memory _imageURI,
     uint112 _minStake
-  ) external;
+  ) external returns (uint256 _hat);
   function createSubRole(
     uint256 _admin,
     string memory _details,
@@ -75,9 +74,9 @@ interface IRoleStakingShaman {
     bool _mutable,
     string memory _imageURI,
     uint112 _minStake
-  ) external;
+  ) external returns (uint256 _hat);
   function registerRole(uint256 _hat, uint112 _minStake) external;
-  function unregisterRole(uint256 _hat) external;
+  function deregisterRole(uint256 _hat) external;
   function setMinStake(uint256 _hat, uint112 _minStake) external;
 
   /*//////////////////////////////////////////////////////////////

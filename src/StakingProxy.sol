@@ -10,7 +10,7 @@ contract StakingProxy is Clone {
                             CUSTOM ERRORS
   //////////////////////////////////////////////////////////////*/
 
-  error NotAuthorized();
+  error NotAuthorized(address account);
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
@@ -55,7 +55,7 @@ contract StakingProxy is Clone {
    * @notice Delegates the voting power of the shares to the `_delegate` of {MEMBER()}'s choice
    */
   function delegate(address _delegate) external {
-    if (msg.sender != ROLE_STAKING_SHAMAN() && msg.sender != MEMBER()) revert NotAuthorized();
+    if (msg.sender != ROLE_STAKING_SHAMAN() && msg.sender != MEMBER()) revert NotAuthorized(msg.sender);
 
     SHARES_TOKEN().delegate(_delegate);
   }

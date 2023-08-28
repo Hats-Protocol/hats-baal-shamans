@@ -5,12 +5,14 @@ libs = ['lib']
 optimizer_runs = 1_000_000
 gas_reports = ["HatsOnboardingShaman", "HatsModuleFactory"]
 auto_detect_solc = false
-solc = "0.8.18"
+solc = "0.8.19"
+bytecode_hash = "none"
 remappings = [
   "ds-test/=lib/forge-std/lib/ds-test/src/",
   "forge-std/=lib/forge-std/src/",
   "hats-module/=lib/hats-module/src/",
-  "baal/=lib/baal/contracts/"
+  "baal/=lib/baal/contracts/",
+  "solady/=lib/hats-module/lib/solady/src/"
 ]
 
 [profile.ci]

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.18;
+pragma solidity ^0.8.19;
 
 // import { console2 } from "forge-std/Test.sol"; // remove before deploy
 import { HatsModule } from "hats-module/HatsModule.sol";
@@ -108,7 +108,7 @@ contract HatsOnboardingShaman is HatsModule {
   /**
    * @inheritdoc HatsModule
    */
-  function setUp(bytes calldata _initData) public override initializer {
+  function _setUp(bytes calldata _initData) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
     LOOT_TOKEN = IBaalToken(BAAL().lootToken());
 

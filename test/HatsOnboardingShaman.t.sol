@@ -20,9 +20,9 @@ contract HatsOnboardingShamanTest is DeployImplementation, Test {
   // bytes32 public SALT;
 
   uint256 public fork;
-  uint256 public BLOCK_NUMBER = 16_947_805; // the block number where v1.hatsprotocol.eth was deployed;
+  uint256 public BLOCK_NUMBER = 17_671_864; // the block number where v1.hatsprotocol.eth was deployed;
 
-  IHats public constant HATS = IHats(0x9D2dfd6066d5935267291718E8AA16C8Ab729E9d); // v1.hatsprotocol.eth
+  IHats public constant HATS = IHats(0x3bc1A0Ad72417f2d411118085256fC53CBdDd137); // v1.hatsprotocol.eth
   string public FACTORY_VERSION = "factory test version";
   string public SHAMAN_VERSION = "shaman test version";
 
@@ -42,6 +42,7 @@ contract HatsOnboardingShamanTest is DeployImplementation, Test {
   event Kicked(address member, uint256 sharesBurned, uint256 lootBurned);
   event KickedBatch(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
   event StartingSharesSet(uint256 newStartingShares);
+  event RoleStakingShamanSet(address newRoleStakingShaman);
 
   function setUp() public virtual {
     // create and activate a fork, at BLOCK_NUMBER
@@ -217,7 +218,7 @@ contract Deployment is WithInstanceTest {
 contract Onboarding is WithInstanceTest {
   function test_wearer_canOnboard() public {
     vm.prank(wearer1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Onboarded(wearer1, startingShares);
     shaman.onboard();
 
@@ -270,7 +271,7 @@ contract Offboarding is WithInstanceTest {
     members[0] = wearer1;
     sharesBurned = new uint256[](1);
     sharesBurned[0] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Offboarded(wearer1, startingShares);
     shaman.offboard(wearer1);
 
@@ -331,7 +332,7 @@ contract Offboarding is WithInstanceTest {
     sharesBurned = new uint256[](2);
     sharesBurned[0] = startingShares;
     sharesBurned[1] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit OffboardedBatch(members, sharesBurned);
     shaman.offboard(members);
 
@@ -431,7 +432,7 @@ contract Offboarding is WithInstanceTest {
     members[0] = wearer1;
     sharesBurned = new uint256[](1);
     sharesBurned[0] = startingShares + 1000;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Offboarded(wearer1, startingShares + 1000);
     shaman.offboard(wearer1);
 
@@ -457,7 +458,7 @@ contract Offboarding is WithInstanceTest {
     members[0] = wearer1;
     sharesBurned = new uint256[](1);
     sharesBurned[0] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Offboarded(wearer1, startingShares);
     shaman.offboard(wearer1);
 
@@ -491,7 +492,7 @@ contract Offboarding is WithInstanceTest {
     sharesBurned = new uint256[](2);
     sharesBurned[0] = startingShares + 1000;
     sharesBurned[1] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit OffboardedBatch(members, sharesBurned);
     shaman.offboard(members);
 
@@ -527,7 +528,7 @@ contract Offboarding is WithInstanceTest {
     sharesBurned = new uint256[](2);
     sharesBurned[0] = startingShares;
     sharesBurned[1] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit OffboardedBatch(members, sharesBurned);
     shaman.offboard(members);
 
@@ -558,7 +559,7 @@ contract Reboarding is WithInstanceTest {
 
     // they can reboard
     vm.prank(wearer1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Reboarded(wearer1, startingShares);
     shaman.reboard();
 
@@ -625,7 +626,7 @@ contract Reboarding is WithInstanceTest {
 
     // they can reboard
     vm.prank(wearer1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Reboarded(wearer1, startingShares * 3);
     shaman.reboard();
 
@@ -658,7 +659,7 @@ contract Reboarding is WithInstanceTest {
 
     // they can reboard
     vm.prank(wearer1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Reboarded(wearer1, startingShares * 3);
     shaman.reboard();
 
@@ -686,7 +687,7 @@ contract Kicking is WithInstanceTest {
     members[0] = wearer1;
     sharesBurned[0] = startingShares;
     lootBurned[0] = 0;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Kicked(wearer1, startingShares, 0);
     shaman.kick(wearer1);
 
@@ -716,7 +717,7 @@ contract Kicking is WithInstanceTest {
     members[0] = wearer1;
     sharesBurned[0] = 0;
     lootBurned[0] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Kicked(wearer1, 0, startingShares);
     shaman.kick(wearer1);
 
@@ -749,7 +750,7 @@ contract Kicking is WithInstanceTest {
     members[0] = wearer1;
     sharesBurned[0] = startingShares / 2;
     lootBurned[0] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Kicked(wearer1, startingShares / 2, startingShares);
     shaman.kick(wearer1);
 
@@ -819,7 +820,7 @@ contract Kicking is WithInstanceTest {
     sharesBurned[1] = startingShares;
     lootBurned[0] = 0;
     lootBurned[1] = 0;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit KickedBatch(members, sharesBurned, lootBurned);
     shaman.kick(members);
 
@@ -860,7 +861,7 @@ contract Kicking is WithInstanceTest {
     sharesBurned[1] = 0;
     lootBurned[0] = startingShares;
     lootBurned[1] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit KickedBatch(members, sharesBurned, lootBurned);
     shaman.kick(members);
 
@@ -905,7 +906,7 @@ contract Kicking is WithInstanceTest {
     sharesBurned[1] = startingShares / 3;
     lootBurned[0] = startingShares;
     lootBurned[1] = startingShares;
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit KickedBatch(members, sharesBurned, lootBurned);
     shaman.kick(members);
 
@@ -978,14 +979,14 @@ contract SetStartingShares is WithInstanceTest {
     newStartingShares = startingShares + 1;
 
     vm.prank(dao);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit StartingSharesSet(newStartingShares);
     shaman.setStartingShares(newStartingShares);
 
     assertEq(shaman.startingShares(), newStartingShares);
   }
 
-  function test_nonOwner_reverts() public {
+  function test_revert_nonOwner() public {
     newStartingShares = startingShares + 1;
 
     vm.prank(nonWearer);
@@ -997,7 +998,24 @@ contract SetStartingShares is WithInstanceTest {
 }
 
 contract SetRoleStakingShaman is WithInstanceTest {
-// TODO
+  address public newRoleStakingShaman = makeAddr("roleStakingShaman");
+
+  function test_owner_canSetRoleStakingShaman() public {
+    vm.prank(dao);
+    vm.expectEmit();
+    emit RoleStakingShamanSet(newRoleStakingShaman);
+    shaman.setRoleStakingShaman(newRoleStakingShaman);
+
+    assertEq(shaman.roleStakingShaman(), newRoleStakingShaman);
+  }
+
+  function test_nonOwner_reverts() public {
+    vm.prank(nonWearer);
+    vm.expectRevert(NotOwner.selector);
+    shaman.setRoleStakingShaman(newRoleStakingShaman);
+
+    assertEq(shaman.roleStakingShaman(), address(0));
+  }
 }
 
 // TODO test with HatsRoleStakingShaman

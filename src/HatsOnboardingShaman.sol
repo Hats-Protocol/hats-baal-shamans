@@ -24,13 +24,12 @@ contract HatsOnboardingShaman is HatsModule {
 
   error AlreadyBoarded();
   error NotWearingMemberHat();
-  error NotWearingOwnerHat();
+  error NotOwner();
   error StillWearsMemberHat(address member);
   error NoLoot();
   error NoShares(address member);
   error NotMember(address nonMember);
   error NotInBadStanding(address member);
-  error BadStartingShares();
   error BatchActionsNotSupportedWithRoleStakingShaman(address roleStakingShaman);
 
   /*//////////////////////////////////////////////////////////////
@@ -44,12 +43,7 @@ contract HatsOnboardingShaman is HatsModule {
   event Kicked(address member, uint256 sharesBurned, uint256 lootBurned);
   event KickedBatch(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
   event StartingSharesSet(uint256 newStartingShares);
-
-  /*//////////////////////////////////////////////////////////////
-                        INTERNAL CONSTANTS
-  //////////////////////////////////////////////////////////////*/
-
-  uint256 internal constant MIN_STARTING_SHARES = 1e18;
+  event RoleStakingShamanSet(address newRoleStakingShaman);
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
@@ -75,7 +69,6 @@ contract HatsOnboardingShaman is HatsModule {
    * 40      | hatId               | uint256 | 32     | HatsModule       |
    * 72      | BAAL                | address | 20     | this             |
    * 92      | OWNER_HAT           | uint256 | 32     | this             |
-   * 124     | ROLE_STAKING_SHAMAN | address | 20     | this             |
    * --------------------------------------------------------------------+
    */
 
@@ -87,13 +80,11 @@ contract HatsOnboardingShaman is HatsModule {
     return _getArgUint256(92);
   }
 
-  function ROLE_STAKING_SHAMAN() public pure returns (address) {
-    return _getArgAddress(124);
-  }
-
   /**
    * @dev These are not stored as immutable args in order to enable instances to be set as shamans in new Baal
    * deployments via `initializationActions`, which is not possible if these values determine an instance's address.
+   * While this means that they are stored normally in contract state, we still treat them as constants since they
+   * cannot be mutated after initialization.
    */
   IBaalToken public SHARES_TOKEN;
   IBaalToken public LOOT_TOKEN;
@@ -103,6 +94,7 @@ contract HatsOnboardingShaman is HatsModule {
   //////////////////////////////////////////////////////////////*/
 
   uint256 public startingShares;
+  address public roleStakingShaman;
 
   /*//////////////////////////////////////////////////////////////
                           CONSTRUCTOR
@@ -115,13 +107,11 @@ contract HatsOnboardingShaman is HatsModule {
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc HatsModule
-  function setUp(bytes calldata _initData) public override initializer {
+  function _setUp(bytes calldata _initData) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
     LOOT_TOKEN = IBaalToken(BAAL().lootToken());
 
     uint256 startingShares_ = abi.decode(_initData, (uint256));
-
-    if (startingShares_ < MIN_STARTING_SHARES) revert BadStartingShares();
 
     // set the starting shares
     startingShares = startingShares_;
@@ -138,14 +128,14 @@ contract HatsOnboardingShaman is HatsModule {
    */
   function onboard() external wearsMemberHat(msg.sender) {
     uint256 stakedAmount;
-    if (ROLE_STAKING_SHAMAN() != address(0)) {
-      (stakedAmount,) = _getStakedSharesAndProxy(msg.sender);
+    address roleStakingShaman_ = roleStakingShaman;
+    if (roleStakingShaman_ > address(0)) {
+      (stakedAmount,) = _getStakedSharesAndProxy(msg.sender, roleStakingShaman_);
     }
-    unchecked {
-      /// @dev safe, since if this overflows, we know msg.sender is a member, so we should not revert
-      if (SHARES_TOKEN.balanceOf(msg.sender) + stakedAmount + LOOT_TOKEN.balanceOf(msg.sender) > 0) {
-        revert AlreadyBoarded();
-      }
+
+    /// @dev checked since if this overflows, we know msg.sender is a member and we need to revert
+    if (SHARES_TOKEN.balanceOf(msg.sender) + stakedAmount + LOOT_TOKEN.balanceOf(msg.sender) > 0) {
+      revert AlreadyBoarded();
     }
 
     uint256[] memory amounts = new uint256[](1);
@@ -164,8 +154,9 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _members The addresses of the members to offboard.
    */
   function offboard(address[] calldata _members) external {
-    if (ROLE_STAKING_SHAMAN() != address(0)) {
-      revert BatchActionsNotSupportedWithRoleStakingShaman(ROLE_STAKING_SHAMAN());
+    address roleStakingShaman_ = roleStakingShaman;
+    if (roleStakingShaman_ > address(0)) {
+      revert BatchActionsNotSupportedWithRoleStakingShaman(roleStakingShaman_);
     }
 
     uint256 length = _members.length;
@@ -193,10 +184,6 @@ contract HatsOnboardingShaman is HatsModule {
     emit OffboardedBatch(_members, amounts);
   }
 
-  function _getStakedSharesAndProxy(address member) internal view returns (uint256 amount, address proxy) {
-    (amount, proxy) = IRoleStakingShaman(ROLE_STAKING_SHAMAN()).getStakedSharesAndProxy(member);
-  }
-
   /**
    * @notice Offboards a single member from the DAO, if they are not wearing the member hat. Offboarded members
    * lose their voting power by having their shares down-converted to loot. If the member has staked shares elsewhere
@@ -212,8 +199,10 @@ contract HatsOnboardingShaman is HatsModule {
     address[] memory shareMembers;
     uint256[] memory shareAmounts;
 
-    if (ROLE_STAKING_SHAMAN() != address(0)) {
-      (stakedAmount, proxy) = _getStakedSharesAndProxy(_member);
+    address roleStakingShaman_ = roleStakingShaman;
+
+    if (roleStakingShaman_ > address(0)) {
+      (stakedAmount, proxy) = _getStakedSharesAndProxy(_member, roleStakingShaman_);
     }
 
     uint256 amount = SHARES_TOKEN.balanceOf(_member);
@@ -283,8 +272,9 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _members The addresses of the members to kick.
    */
   function kick(address[] calldata _members) external {
-    if (ROLE_STAKING_SHAMAN() != address(0)) {
-      revert BatchActionsNotSupportedWithRoleStakingShaman(ROLE_STAKING_SHAMAN());
+    address roleStakingShaman_ = roleStakingShaman;
+    if (roleStakingShaman_ > address(0)) {
+      revert BatchActionsNotSupportedWithRoleStakingShaman(roleStakingShaman_);
     }
 
     uint256 length = _members.length;
@@ -332,8 +322,10 @@ contract HatsOnboardingShaman is HatsModule {
     uint256 stakedAmount;
     address proxy;
 
-    if (ROLE_STAKING_SHAMAN() != address(0)) {
-      (stakedAmount, proxy) = _getStakedSharesAndProxy(_member);
+    address roleStakingShaman_ = roleStakingShaman;
+
+    if (roleStakingShaman_ > address(0)) {
+      (stakedAmount, proxy) = _getStakedSharesAndProxy(_member, roleStakingShaman_);
     }
 
     uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
@@ -397,6 +389,18 @@ contract HatsOnboardingShaman is HatsModule {
   }
 
   /*//////////////////////////////////////////////////////////////
+                        INTERNAL FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
+
+  function _getStakedSharesAndProxy(address member, address _roleStakingShaman)
+    internal
+    view
+    returns (uint256 amount, address proxy)
+  {
+    (amount, proxy) = IRoleStakingShaman(_roleStakingShaman).getStakedSharesAndProxy(member);
+  }
+
+  /*//////////////////////////////////////////////////////////////
                         OWNER FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
@@ -404,18 +408,27 @@ contract HatsOnboardingShaman is HatsModule {
    * @notice Sets a new the starting shares value.
    * @param _startingShares The new starting shares value. Must be a least `1 * 10^18`.
    */
-  function setStartingShares(uint256 _startingShares) external {
-    if (!HATS().isWearerOfHat(msg.sender, OWNER_HAT())) revert NotWearingOwnerHat();
-    if (_startingShares < MIN_STARTING_SHARES) revert BadStartingShares();
+  function setStartingShares(uint256 _startingShares) external onlyOwner {
     // set the new starting shares value
     startingShares = _startingShares;
     // log the change
     emit StartingSharesSet(_startingShares);
   }
 
+  function setRoleStakingShaman(address _newRoleStakingShaman) external onlyOwner {
+    roleStakingShaman = _newRoleStakingShaman;
+
+    emit RoleStakingShamanSet(_newRoleStakingShaman);
+  }
+
   /*//////////////////////////////////////////////////////////////
                           MODIFIERS
   //////////////////////////////////////////////////////////////*/
+
+  modifier onlyOwner() {
+    if (!HATS().isWearerOfHat(msg.sender, OWNER_HAT())) revert NotOwner();
+    _;
+  }
 
   /**
    * @notice Reverts if the caller is not wearing the member hat.

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import { console2 } from "forge-std/Test.sol"; // remove before deploy
+// import { console2 } from "forge-std/Test.sol"; // remove before deploy
 import { HatsModule, IHats } from "hats-module/HatsModule.sol";
 import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
 import { IHatsEligibility } from "hats-protocol/Interfaces/IHatsEligibility.sol";
@@ -17,7 +17,7 @@ import { StakingProxy } from "src/StakingProxy.sol";
  * @author Haberdasher Labs
  * @author @spengrah
  * @dev This contract inherits from the HatsModule contract, and is meant to be deployed as a clone from the
- * HatsModuleFactory.
+ * HatsModuleFactory. To function properly, this contract must wear the {hatId} hat.
  */
 contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
   /*//////////////////////////////////////////////////////////////
@@ -103,15 +103,12 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   /// @inheritdoc IRoleStakingShaman
   mapping(uint256 hat => mapping(address member => Stake stake)) public roleStakes;
 
+  /// @inheritdoc IRoleStakingShaman
+  uint32 public cooldownBuffer;
+
   /// @dev Internal tracker for member standing by hat, exposed publicly via {getWearerStatus}.
   /// Default is good standing (true).
   mapping(uint256 hat => mapping(address member => bool badStanding)) internal badStandings;
-
-  /// @inheritdoc IRoleStakingShaman
-  mapping(address member => uint256 totalStaked) public memberStakes;
-
-  /// @inheritdoc IRoleStakingShaman
-  uint32 public cooldownBuffer;
 
   /*//////////////////////////////////////////////////////////////
                           CONSTRUCTOR
@@ -124,7 +121,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc HatsModule
-  function setUp(bytes calldata _initData) public override initializer {
+  function _setUp(bytes calldata _initData) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
 
     cooldownBuffer = abi.decode(_initData, (uint32));
@@ -151,7 +148,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /**
-   * @notice Creates a new role as a lower-level descendent of {hatId} and adds a `_minStake` staking requirement for it
+   * @notice Creates a new role as a lower-level descendent of {hatId} — ie as a direct child of `_admin` — and
+   * adds a `_minStake` staking requirement for it
    */
   function createSubRole(
     uint256 _admin,
@@ -170,11 +168,18 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   /**
    * @notice Registers an existing role by adding a staking requirement
    */
-  function registerRole(uint256 _hat, uint112 _minStake) external onlyRoleManager hatIsMutable(_hat) {
+  function registerRole(uint256 _hat, uint112 _minStake, address _eligibility)
+    external
+    onlyRoleManager
+    hatIsMutable(_hat)
+  {
     // ensure the role is in hatId()'s branch
     if (!_inBranch(_hat)) revert InvalidRole();
     // ensure the role hasn't already been added or created
     if (minStakes[_hat] != 0) revert RoleAlreadyRegistered();
+
+    // change the hat's eligibility module, if set
+    if (_eligibility > address(0)) HATS().changeHatEligibility(_hat, _eligibility);
 
     _setMinStake(_hat, _minStake);
   }
@@ -330,8 +335,6 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   function _stakeOnRole(address _member, uint256 _hat, uint112 _amount, address _delegate) internal {
     // add _amount to _member's stake for _hat
     roleStakes[_hat][_member].stakedAmount += _amount;
-    // add _amount to _member's total stake
-    memberStakes[_member] += _amount;
 
     // calculate _member's staking proxy address
     address proxy = _calculateStakingProxyAddress(_member);
@@ -404,7 +407,50 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
       stake.stakedAmount -= _amount;
     }
 
-    /// @dev we don't remove _amount from memberStakes since it's technically still staked
+    // log the unstake initiation
+    emit UnstakeBegun(msg.sender, _hat, _amount);
+  }
+
+  /**
+   * @notice Cancels an unstaking process for a role and starts a new one with a new value and new cooldown period.
+   *  Useful when something outside of this contract (eg a direct baal or other shaman slash) changed the caller's
+   * staked shares in the Staking Proxy, leading to failed sufficient stake checks. In such a scenario, the caller could
+   * reduce their unstaking `_amount` to a value for which they have sufficient stake.
+   */
+  function resetUnstakeFromRole(uint256 _hat, uint112 _amount) external {
+    // check if caller is in bad standing for _hat and slash their stake if so
+    if (!HATS().isInGoodStanding(msg.sender, _hat)) {
+      _slashStake(msg.sender, _hat);
+      return;
+    }
+
+    /**
+     * @dev caller must have at least _amount stake for _hat, both in internal roleStake accounting (sum of staked and
+     * unstaking) as well as their actual shares in their Staking Proxy.
+     */
+    Stake storage stake = roleStakes[_hat][msg.sender];
+    uint112 oldUnstakingAmount = stake.unstakingAmount;
+    uint256 allStaked = stake.stakedAmount + oldUnstakingAmount;
+    if (allStaked < _amount || SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(msg.sender)) < _amount) {
+      revert InsufficientStake();
+    }
+
+    unchecked {
+      if (oldUnstakingAmount > _amount) {
+        // if the new unstaking amount is less than the old one, we need to increase the stakedAmount
+        /// @dev Should not overflow given the above check
+        stake.stakedAmount += oldUnstakingAmount - _amount;
+      } else {
+        // if the new unstaking amount is greater than the old one, we need to decrease the stakedAmount
+        /// @dev Should not overflow given the above check
+        stake.stakedAmount -= _amount - oldUnstakingAmount;
+      }
+      // update the unstaking amount to the new value
+      stake.unstakingAmount = _amount;
+
+      /// @dev Should not overflow until 2106
+      stake.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod();
+    }
 
     // log the unstake initiation
     emit UnstakeBegun(msg.sender, _hat, _amount);
@@ -426,20 +472,14 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     // caller must have sufficient total stake and sufficient actual shares in their staking proxy
     uint112 amount = stake.unstakingAmount;
     address proxy = _calculateStakingProxyAddress(_member);
-    // TODO is this first memberStakes check necessary?
-    if (memberStakes[_member] < amount || SHARES_TOKEN.balanceOf(proxy) < amount) revert InsufficientStake();
+
+    if (SHARES_TOKEN.balanceOf(proxy) < amount) revert InsufficientStake();
 
     // remove their stake from the cooldown queue
     stake.unstakingAmount = 0;
     stake.canUnstakeAfter = 0;
 
-    // remove the cooled-down stake from their total in memberStakes
-    unchecked {
-      /// @dev Safe since stake is sufficient
-      memberStakes[_member] -= amount;
-    }
-
-    // transfer their amount of shares from the msg.sender's staking proxy to msg.sender
+    // transfer their amount of shares from the _member's staking proxy to _member
     /// @dev will revert if insufficient balance in proxy, which could happen if they got burned directly by another
     /// shaman or the Baal itself
     _transferShares(proxy, _member, amount);
@@ -449,8 +489,11 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /**
-   * @notice Unstake shares from a role that has been unregistred from this contract registry. This special case is not
-   * subject to a cooldown period, since the stake is no longer an eligibility criterion for the role.
+   * @notice Unstake all remaining shares from a role that has been unregistered from this contract registry. This
+   * special case is not subject to a cooldown period, since the stake is no longer an eligibility criterion for the
+   * role.
+   * If some of the shares staked in the caller's staking proxy have been burned (eg by another shaman), all
+   * remaining shares are unstaked and the caller's internal staking balance is set to zero.
    * @dev Nonetheless, a staker in bad standing is still slashed by this function.
    */
   function unstakeFromDeregisteredRole(uint256 _hat) external {
@@ -462,26 +505,18 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
       return;
     }
 
-    // caller must have sufficient total stake covering both unstaking and staked amounts
-    Stake storage stake = roleStakes[_hat][msg.sender];
-    uint112 amount = stake.unstakingAmount + stake.stakedAmount;
-    if (memberStakes[msg.sender] < amount) revert InsufficientStake();
+    // get their remaining staked balance
+    (uint256 proxyBalance, address proxy) = getStakedSharesAndProxy(msg.sender);
+    uint112 amount = uint112(proxyBalance);
 
-    // remove their stake from the cooldown queue and reset their stakedAmount
+    // clear their staked amount, and also clear any cooldown
+    Stake storage stake = roleStakes[_hat][msg.sender];
+    stake.stakedAmount = 0;
     stake.unstakingAmount = 0;
     stake.canUnstakeAfter = 0;
-    stake.stakedAmount = 0;
-
-    // remove the cooled-down stake from their total in memberStakes
-    unchecked {
-      /// @dev Safe since stake is sufficient
-      memberStakes[msg.sender] -= amount;
-    }
 
     // transfer their amount of shares from the msg.sender's staking proxy to msg.sender
-    /// @dev will revert if insufficient balance in proxy, which could happen if they got burned directly by another
-    /// shaman or the Baal itself
-    _transferShares(_calculateStakingProxyAddress(msg.sender), msg.sender, amount);
+    if (amount > 0) _transferShares(proxy, msg.sender, amount);
 
     // log the unstake
     emit UnstakeCompleted(msg.sender, _hat, amount);
@@ -506,7 +541,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     if (stake.unstakingAmount > 0) {
       // _member is in cooldown, so we need to account for their unstakingAmount
       unchecked {
-        // Should not overflow since these are two components of a staked amount, which did not previously overflow
+        // Should not overflow since these are two components of a staked amount total, which did not previously
+        // overflow
         amount = stake.stakedAmount + stake.unstakingAmount;
       }
       // and clear their cooldown
@@ -519,15 +555,9 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     // in either case, we clear their stakedAmount
     stake.stakedAmount = 0;
 
-    // subtract _amount from _member's total stake
-    unchecked {
-      /// @dev Total stake is always >= sum(stakedAmount for all roles)
-      memberStakes[_member] -= amount;
-    }
-
     // make sure the actual amount to burn is not greater than the member's proxy balance
     // (which could happen if the baal or another shaman burned some directly)
-    uint112 proxyBalance = uint112(SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(_member)));
+    uint112 proxyBalance = memberStakes(_member);
     if (amount > proxyBalance) amount = proxyBalance;
 
     // burn the shares
@@ -556,9 +586,13 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     }
   }
 
-  function getStakedSharesAndProxy(address _member) public view returns (uint256 amount, address stakingProxy) {
+  function getStakedSharesAndProxy(address _member) public view returns (uint112 amount, address stakingProxy) {
     stakingProxy = _calculateStakingProxyAddress(_member);
-    amount = SHARES_TOKEN.balanceOf(stakingProxy);
+    amount = uint112(SHARES_TOKEN.balanceOf(stakingProxy));
+  }
+
+  function memberStakes(address _member) public view returns (uint112) {
+    return uint112(SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(_member)));
   }
 
   /*//////////////////////////////////////////////////////////////

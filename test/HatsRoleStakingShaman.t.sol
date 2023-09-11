@@ -217,6 +217,9 @@ contract WithInstanceTest is HatsRoleStakingShamanTest {
     // deploy a test baal with the predicted shaman address
     baal = deployBaalWithShaman("TEST_BAAL", "TEST_BAAL", SALT, predictedShamanAddress);
 
+    // ensure that the actual and predicted addresses are the same
+    require(address(baal) == predictedBaalAddress, "actual and predicted baal addresses do not match");
+
     // find and set baal token addresses
     sharesToken = IBaalToken(baal.sharesToken());
 
@@ -224,9 +227,6 @@ contract WithInstanceTest is HatsRoleStakingShamanTest {
     shaman = deployInstance(
       predictedBaalAddress, shamanHat, address(stakingProxyImplementation), roleManagerHat, judgeHat, cooldownBuffer
     );
-
-    // ensure that the actual and predicted addresses are the same
-    require(address(baal) == predictedBaalAddress, "actual and predicted baal addresses do not match");
 
     // mint shaman hat to shaman
     vm.prank(dao);
@@ -267,6 +267,16 @@ contract Deployment is WithInstanceTest {
   function test_stakingProxyImplementation() public {
     assertEq(address(shaman.STAKING_PROXY_IMPL()), address(stakingProxyImplementation));
   }
+
+  function test_initialized() public {
+    bytes memory testInitData = abi.encode(12_456);
+    // implementation
+    vm.expectRevert();
+    implementation.setUp(testInitData);
+    // instance
+    vm.expectRevert();
+    shaman.setUp(testInitData);
+  }
 }
 
 contract CreatingRoles is WithInstanceTest {
@@ -284,14 +294,14 @@ contract CreatingRoles is WithInstanceTest {
 
     vm.prank(roleManager);
 
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit MinStakeSet(role1Hat, minStake);
     shaman.createRole(details, maxSupply, eligibility, toggle, mut, image, minStake);
 
     assertEq(shaman.minStakes(role1Hat), minStake);
   }
 
-  function test_createRole_nonRoleManager_reverts() public {
+  function test_revert_createRole_nonRoleManager() public {
     details = "role1";
     image = "dao.eth/role1";
     vm.prank(nonWearer);
@@ -308,14 +318,14 @@ contract CreatingRoles is WithInstanceTest {
 
     vm.prank(roleManager);
 
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit MinStakeSet(role2Hat, minStake);
     shaman.createSubRole(role1Hat, details, maxSupply, eligibility, toggle, mut, image, minStake);
 
     assertEq(shaman.minStakes(role2Hat), minStake);
   }
 
-  function test_createSubRole_nonRoleManager_reverts() public {
+  function test_revert_createSubRole_nonRoleManager() public {
     role1Hat = HATS.buildHatId(shamanHat, 1);
     details = "role2";
     image = "dao.eth/role2";
@@ -336,14 +346,14 @@ contract RegisteringRoles is WithInstanceTest {
     minStake = 1000;
 
     vm.prank(roleManager);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit MinStakeSet(role1Hat, minStake);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     assertEq(shaman.minStakes(role1Hat), minStake);
   }
 
-  function test_nonRoleManager_reverts() public {
+  function test_revert_nonRoleManager() public {
     // create a mutable hat
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1Hat", 1, eligibility, toggle, true, "dao.eth/role1Hat");
@@ -353,12 +363,12 @@ contract RegisteringRoles is WithInstanceTest {
 
     vm.prank(nonWearer);
     vm.expectRevert(NotRoleManager.selector);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     assertEq(shaman.minStakes(role1Hat), 0);
   }
 
-  function test_immutableHat_reverts() public {
+  function test_revert_immutableHat() public {
     // create an immutable hat
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1Hat", 1, eligibility, toggle, false, "dao.eth/role1Hat");
@@ -368,12 +378,12 @@ contract RegisteringRoles is WithInstanceTest {
 
     vm.prank(roleManager);
     vm.expectRevert(HatImmutable.selector);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     assertEq(shaman.minStakes(role1Hat), 0);
   }
 
-  function test_invalidRole_reverts() public {
+  function test_revert_invalidRole() public {
     // create a new child of the tophat
     vm.prank(dao);
     uint256 otherHat = HATS.createHat(tophat, "not in shaman branch", 1, eligibility, toggle, true, "dao.eth/other");
@@ -384,12 +394,12 @@ contract RegisteringRoles is WithInstanceTest {
     vm.prank(roleManager);
     vm.expectRevert(InvalidRole.selector);
     // attempt to add the tophat
-    shaman.registerRole(otherHat, minStake);
+    shaman.registerRole(otherHat, minStake, address(0));
 
     assertEq(shaman.minStakes(otherHat), 0);
   }
 
-  function test_roleAlreadyRegistered_reverts() public {
+  function test_revert_roleAlreadyRegistered() public {
     // create a mutable hat
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1Hat", 1, eligibility, toggle, true, "dao.eth/role1Hat");
@@ -398,19 +408,21 @@ contract RegisteringRoles is WithInstanceTest {
     minStake = 1000;
 
     vm.prank(roleManager);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit MinStakeSet(role1Hat, minStake);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     assertEq(shaman.minStakes(role1Hat), minStake);
 
     // attempt to register again
     vm.prank(roleManager);
     vm.expectRevert(RoleAlreadyRegistered.selector);
-    shaman.registerRole(role1Hat, minStake * 2);
+    shaman.registerRole(role1Hat, minStake * 2, address(0));
 
     assertEq(shaman.minStakes(role1Hat), minStake);
   }
+
+  // TODO: test setting a new eligibility module
 }
 
 contract DeregisteringRoles is WithInstanceTest {
@@ -426,14 +438,14 @@ contract DeregisteringRoles is WithInstanceTest {
     role1Hat = addRole(minStake, true);
 
     vm.prank(roleManager);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit MinStakeSet(role1Hat, 0);
     shaman.deregisterRole(role1Hat);
 
     assertEq(shaman.minStakes(role1Hat), 0);
   }
 
-  function test_nonRoleManager_reverts() public {
+  function test_revert_nonRoleManager() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -444,7 +456,7 @@ contract DeregisteringRoles is WithInstanceTest {
     assertEq(shaman.minStakes(role1Hat), minStake);
   }
 
-  function test_immutableHat_reverts() public {
+  function test_revert_immutableHat() public {
     // create and register an immutable role
     role1Hat = addRole(minStake, false);
 
@@ -474,14 +486,14 @@ contract SettingMinStake is WithInstanceTest {
     newMinStake = minStake * 2;
 
     vm.prank(roleManager);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit MinStakeSet(role1Hat, newMinStake);
     shaman.setMinStake(role1Hat, newMinStake);
 
     assertEq(shaman.minStakes(role1Hat), newMinStake);
   }
 
-  function test_invalidRole_reverts() public {
+  function test_revert_invalidRole() public {
     // create a new child of the tophat
     vm.prank(dao);
     uint256 otherHat = HATS.createHat(tophat, "not in shaman branch", 1, eligibility, toggle, true, "dao.eth/other");
@@ -493,7 +505,7 @@ contract SettingMinStake is WithInstanceTest {
     assertEq(shaman.minStakes(otherHat), 0);
   }
 
-  function test_nonRoleManager_reverts() public {
+  function test_revert_nonRoleManager() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -507,7 +519,7 @@ contract SettingMinStake is WithInstanceTest {
     assertEq(shaman.minStakes(role1Hat), minStake);
   }
 
-  function test_immutableHat_reverts() public {
+  function test_revert_immutableHat() public {
     // create and register an immutable role
     role1Hat = addRole(minStake, false);
 
@@ -538,7 +550,7 @@ contract Staking is WithInstanceTest {
 
     // member1 stakes, delegating to self
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
     shaman.stakeOnRole(role1Hat, stake, member1);
 
@@ -549,7 +561,7 @@ contract Staking is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_invalidRole_reverts() public {
+  function test_revert_invalidRole() public {
     // create a new child of the tophat
     vm.prank(dao);
     uint256 otherHat = HATS.createHat(tophat, "not in shaman branch", 1, eligibility, toggle, true, "dao.eth/other");
@@ -570,7 +582,7 @@ contract Staking is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_insufficientShares_reverts() public {
+  function test_revert_insufficientShares() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -602,7 +614,7 @@ contract Staking is WithInstanceTest {
 
     // member1 stakes, delegating to other address
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
     shaman.stakeOnRole(role1Hat, stake, nonWearer);
 
@@ -625,7 +637,7 @@ contract Staking is WithInstanceTest {
 
     // member1 stakes, delegating to self
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
     shaman.stakeOnRole(role1Hat, stake, member1);
 
@@ -640,7 +652,7 @@ contract Staking is WithInstanceTest {
 
     // member1 stakes again, delegating to self
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
     shaman.stakeOnRole(role1Hat, stake, member1);
 
@@ -676,7 +688,7 @@ contract Claiming is WithInstanceTest {
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1", 1, eligibility, toggle, true, "dao.eth/role1");
     vm.prank(roleManager);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     // set stake value
     stake = minStake;
@@ -702,7 +714,7 @@ contract Claiming is WithInstanceTest {
     assertTrue(HATS.isWearerOfHat(member1, role1Hat));
   }
 
-  function test_invalidRole_reverts() public {
+  function test_revert_invalidRole() public {
     // create a new child of the tophat
     vm.prank(dao);
     uint256 otherHat = HATS.createHat(tophat, "not in shaman branch", 1, eligibility, toggle, true, "dao.eth/other");
@@ -715,7 +727,7 @@ contract Claiming is WithInstanceTest {
     assertFalse(HATS.isWearerOfHat(member1, otherHat));
   }
 
-  function test_insufficientStake_reverts() public {
+  function test_revert_insufficientStake() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
     // set stake value to less than minStake
@@ -738,12 +750,12 @@ contract Claiming is WithInstanceTest {
     assertFalse(HATS.isWearerOfHat(member1, role1Hat));
   }
 
-  function test_notExplicitlyEligible_reverts() public {
+  function test_revert_notExplicitlyEligible() public {
     // create and register a mutable role with a different eligibility module
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1", 1, eligibility, toggle, true, "dao.eth/role1");
     vm.prank(roleManager);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     // set stake value
     stake = minStake;
@@ -776,7 +788,7 @@ contract StakingAndClaiming is WithInstanceTest {
     grantShares(member1, stake);
     // member1 stakes enough shares
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
     shaman.stakeAndClaimRole(role1Hat, stake, member1);
 
@@ -788,7 +800,7 @@ contract StakingAndClaiming is WithInstanceTest {
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1", 1, eligibility, toggle, true, "dao.eth/role1");
     vm.prank(roleManager);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     // set stake value
     stake = minStake;
@@ -806,14 +818,14 @@ contract StakingAndClaiming is WithInstanceTest {
 
     // member1 stakes and claims, with enough shares
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
     shaman.stakeAndClaimRole(role1Hat, stake, member1);
 
     assertTrue(HATS.isWearerOfHat(member1, role1Hat));
   }
 
-  function test_invalidRole_reverts() public {
+  function test_revert_invalidRole() public {
     // create a new child of the tophat
     vm.prank(dao);
     uint256 otherHat = HATS.createHat(tophat, "not in shaman branch", 1, eligibility, toggle, true, "dao.eth/other");
@@ -831,7 +843,7 @@ contract StakingAndClaiming is WithInstanceTest {
     assertFalse(HATS.isWearerOfHat(member1, otherHat));
   }
 
-  function test_insufficientStake_reverts() public {
+  function test_revert_insufficientStake() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
     // set stake value to less than minStake
@@ -847,12 +859,12 @@ contract StakingAndClaiming is WithInstanceTest {
     assertFalse(HATS.isWearerOfHat(member1, role1Hat));
   }
 
-  function test_notExplicitlyEligible_reverts() public {
+  function test_revert_notExplicitlyEligible() public {
     // create and register a mutable role with a different eligibility module
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1", 1, eligibility, toggle, true, "dao.eth/role1");
     vm.prank(roleManager);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     // role1's eligibility module is not the staking shaman
     assertFalse(HATS.getHatEligibilityModule(role1Hat) == address(shaman));
@@ -880,7 +892,7 @@ contract StakingAndClaiming is WithInstanceTest {
     grantShares(member1, stake);
     // member1 stakes enough shares
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
     shaman.stakeAndClaimRole(role1Hat, stake, nonWearer);
 
@@ -916,7 +928,7 @@ contract SettingStanding is WithInstanceTest {
     assertEq(standing, true);
   }
 
-  function test_nonJudge_reverts() public {
+  function test_revert_nonJudge() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -930,7 +942,7 @@ contract SettingStanding is WithInstanceTest {
     assertEq(standing, true);
   }
 
-  function test_invalidRole_reverts() public {
+  function test_revert_invalidRole() public {
     // create a new child of the tophat
     vm.prank(dao);
     uint256 otherHat = HATS.createHat(tophat, "not in shaman branch", 1, eligibility, toggle, true, "dao.eth/other");
@@ -1038,7 +1050,7 @@ contract Slashing is WithInstanceTest {
 
     // anybody can now slash member1's stake for roleHat1
     vm.prank(nonWearer);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Slashed(member1, role1Hat, stake);
     shaman.slash(member1, role1Hat);
 
@@ -1051,7 +1063,7 @@ contract Slashing is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), 0);
   }
 
-  function test_invalidRole_stakingEligibility_reverts() public {
+  function test_revert_invalidRole_stakingEligibility() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -1082,12 +1094,12 @@ contract Slashing is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_invalidRole_otherEligibility_reverts() public {
+  function test_revert_invalidRole_otherEligibility() public {
     // create and register a mutable role with a different eligibility module
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1", 1, eligibility, toggle, true, "dao.eth/role1");
     vm.prank(roleManager);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     // member1 stakes w/ enough shares
     stake = minStake;
@@ -1116,7 +1128,7 @@ contract Slashing is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_notInBadStanding_stakingEligibility_reverts() public {
+  function test_revert_notInBadStanding_stakingEligibility() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -1139,12 +1151,12 @@ contract Slashing is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_notInBadStanding_otherEligibility_reverts() public {
+  function test_revert_notInBadStanding_otherEligibility() public {
     // create and register a mutable role with a different eligibility module
     vm.prank(dao);
     role1Hat = HATS.createHat(shamanHat, "role1", 1, eligibility, toggle, true, "dao.eth/role1");
     vm.prank(roleManager);
-    shaman.registerRole(role1Hat, minStake);
+    shaman.registerRole(role1Hat, minStake, address(0));
 
     // member1 stakes w/ enough shares
     stake = minStake;
@@ -1186,7 +1198,7 @@ contract Slashing is WithInstanceTest {
 
     // member1's stake is slashed
     vm.prank(nonWearer);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Slashed(member1, role1Hat, stake);
     shaman.slash(member1, role1Hat);
 
@@ -1213,7 +1225,7 @@ contract BeginUnstaking is WithInstanceTest {
     // member1 begins unstaking
     unstakeAmount = stake / 3;
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit UnstakeBegun(member1, role1Hat, unstakeAmount);
     shaman.beginUnstakeFromRole(role1Hat, unstakeAmount);
 
@@ -1241,7 +1253,7 @@ contract BeginUnstaking is WithInstanceTest {
 
     // member1 begins unstaking, but is slashed instead
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Slashed(member1, role1Hat, stake);
     shaman.beginUnstakeFromRole(role1Hat, stake);
 
@@ -1253,7 +1265,7 @@ contract BeginUnstaking is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), 0);
   }
 
-  function test_insufficientStake_reverts() public {
+  function test_revert_insufficientStake() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -1278,7 +1290,7 @@ contract BeginUnstaking is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_cooldownNotEnded_reverts() public {
+  function test_revert_cooldownNotEnded() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -1318,7 +1330,7 @@ contract BeginUnstaking is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake, "votes");
   }
 
-  function test_insufficientStakeInProxy_reverts() public {
+  function test_revert_insufficientStakeInProxy() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -1347,7 +1359,7 @@ contract BeginUnstaking is WithInstanceTest {
     assertEq(retStakedAmount, stake, "roleStake");
     assertEq(retUnstakingAmount, 0, "unstaking");
     assertEq(retCanUnstakeAfter, 0, "cooldown ends");
-    assertEq(shaman.memberStakes(member1), stake, "member stake");
+    assertEq(shaman.memberStakes(member1), stake - sharesBurned[0], "member stake");
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake - sharesBurned[0], "votes");
   }
 }
@@ -1366,7 +1378,7 @@ contract CompleteUnstaking is WithInstanceTest {
     // member1 begins unstaking
     unstakeAmount = stake / 3;
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit UnstakeBegun(member1, role1Hat, unstakeAmount);
     shaman.beginUnstakeFromRole(role1Hat, unstakeAmount);
 
@@ -1382,7 +1394,7 @@ contract CompleteUnstaking is WithInstanceTest {
     vm.warp(cooldownEnds + 1);
 
     // member1 completes unstaking
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit UnstakeCompleted(member1, role1Hat, unstakeAmount);
     shaman.completeUnstakeFromRole(role1Hat, member1);
 
@@ -1407,7 +1419,7 @@ contract CompleteUnstaking is WithInstanceTest {
     // member1 begins unstaking
     unstakeAmount = stake / 3;
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit UnstakeBegun(member1, role1Hat, unstakeAmount);
     shaman.beginUnstakeFromRole(role1Hat, unstakeAmount);
 
@@ -1427,7 +1439,7 @@ contract CompleteUnstaking is WithInstanceTest {
     vm.warp(cooldownEnds + 1);
 
     // member1 completes unstaking, but is slashed
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit Slashed(member1, role1Hat, stake);
     shaman.completeUnstakeFromRole(role1Hat, member1);
 
@@ -1439,7 +1451,7 @@ contract CompleteUnstaking is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), 0);
   }
 
-  function test_cooldownNotEnded_reverts() public {
+  function test_revert_cooldownNotEnded() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -1452,7 +1464,7 @@ contract CompleteUnstaking is WithInstanceTest {
     // member1 begins unstaking
     unstakeAmount = stake / 3;
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit UnstakeBegun(member1, role1Hat, unstakeAmount);
     shaman.beginUnstakeFromRole(role1Hat, unstakeAmount);
 
@@ -1480,7 +1492,7 @@ contract CompleteUnstaking is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_insufficientStakeInProxy_reverts() public {
+  function test_revert_insufficientStakeInProxy() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);
 
@@ -1493,17 +1505,17 @@ contract CompleteUnstaking is WithInstanceTest {
     // member1 begins unstaking
     unstakeAmount = stake - 200;
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit UnstakeBegun(member1, role1Hat, unstakeAmount);
     shaman.beginUnstakeFromRole(role1Hat, unstakeAmount);
 
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
     uint256 cooldownEnds = block.timestamp + shaman.cooldownPeriod();
-    assertEq(retStakedAmount, 200);
-    assertEq(retUnstakingAmount, 800);
-    assertEq(retCanUnstakeAfter, block.timestamp + shaman.cooldownPeriod());
-    assertEq(shaman.memberStakes(member1), stake);
-    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
+    assertEq(retStakedAmount, 200, "roleStake");
+    assertEq(retUnstakingAmount, 800, "unstaking");
+    assertEq(retCanUnstakeAfter, block.timestamp + shaman.cooldownPeriod(), "cooldown ends");
+    assertEq(shaman.memberStakes(member1), stake, "member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake, "votes");
 
     // somehow member1 loses some of their stake (eg a different shaman burns shares from their proxy)
     members = new address[](1);
@@ -1516,16 +1528,98 @@ contract CompleteUnstaking is WithInstanceTest {
     // warp ahead to cooldown end
     vm.warp(cooldownEnds);
 
-    // member1 completes unstaking
+    // member1 attempts to complete unstaking
     vm.expectRevert(InsufficientStake.selector);
     shaman.completeUnstakeFromRole(role1Hat, member1);
 
+    // but can't because they don't have enough stake in their proxy
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
-    assertEq(retStakedAmount, 200);
-    assertEq(retUnstakingAmount, 800);
-    assertEq(retCanUnstakeAfter, cooldownEnds);
-    assertEq(shaman.memberStakes(member1), 1000);
-    assertEq(shaman.SHARES_TOKEN().getVotes(member1), 600);
+    assertEq(retStakedAmount, 200, "roleStake");
+    assertEq(retUnstakingAmount, 800, "unstaking");
+    assertEq(retCanUnstakeAfter, cooldownEnds, "cooldown ends");
+    assertEq(shaman.memberStakes(member1), 600, "member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), 600, "votes");
+  }
+
+  function test_resetUnstake_succeeds() public {
+    // create and register a mutable role
+    role1Hat = addRole(minStake, true);
+
+    // member1 stakes and claims w/ enough shares
+    stake = minStake;
+    grantShares(member1, stake);
+    vm.prank(member1);
+    shaman.stakeAndClaimRole(role1Hat, stake, member1);
+
+    // member1 begins unstaking
+    unstakeAmount = stake - 200;
+    vm.prank(member1);
+    vm.expectEmit();
+    emit UnstakeBegun(member1, role1Hat, unstakeAmount);
+    shaman.beginUnstakeFromRole(role1Hat, unstakeAmount);
+
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
+    uint256 cooldownEnds = block.timestamp + shaman.cooldownPeriod();
+    assertEq(retStakedAmount, 200, "roleStake");
+    assertEq(retUnstakingAmount, 800, "unstaking");
+    assertEq(retCanUnstakeAfter, block.timestamp + shaman.cooldownPeriod(), "cooldown ends");
+    assertEq(shaman.memberStakes(member1), stake, "member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake, "votes");
+
+    // somehow member1 loses some of their stake (eg a different shaman burns shares from their proxy)
+    members = new address[](1);
+    members[0] = predictStakingProxyAddress(member1);
+    sharesBurned = new uint256[](1);
+    sharesBurned[0] = 400;
+    vm.prank(address(shaman));
+    baal.burnShares(members, sharesBurned);
+
+    // warp ahead to cooldown end
+    vm.warp(cooldownEnds);
+
+    // member1 attempts to complete unstaking
+    vm.expectRevert(InsufficientStake.selector);
+    shaman.completeUnstakeFromRole(role1Hat, member1);
+
+    // but can't because they don't have enough stake in their proxy
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
+    assertEq(retStakedAmount, 200, "roleStake");
+    assertEq(retUnstakingAmount, 800, "unstaking");
+    assertEq(retCanUnstakeAfter, cooldownEnds, "cooldown ends");
+    assertEq(shaman.memberStakes(member1), 600, "member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), 600, "votes");
+
+    // now member1 resets their unstake to a lower amount, below what they have in their proxy
+    unstakeAmount = 599;
+    vm.prank(member1);
+    vm.expectEmit();
+    emit UnstakeBegun(member1, role1Hat, unstakeAmount);
+    shaman.resetUnstakeFromRole(role1Hat, unstakeAmount);
+
+    // member1's stake data is updated
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
+    cooldownEnds = block.timestamp + shaman.cooldownPeriod();
+    assertEq(retStakedAmount, 401, "roleStake");
+    assertEq(retUnstakingAmount, 599, "unstaking");
+    assertEq(retCanUnstakeAfter, cooldownEnds, "cooldown ends");
+    assertEq(shaman.memberStakes(member1), 600, "member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), 600, "votes");
+
+    // warp ahead to new cooldown end
+    vm.warp(cooldownEnds);
+
+    // now member1 can complete unstake, since they have sufficient stake in their proxy
+    vm.expectEmit();
+    emit UnstakeCompleted(member1, role1Hat, unstakeAmount);
+    shaman.completeUnstakeFromRole(role1Hat, member1);
+
+    // member1's stake data is updated accordingly
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
+    assertEq(retStakedAmount, 401, "roleStake");
+    assertEq(retUnstakingAmount, 0, "unstaking");
+    assertEq(retCanUnstakeAfter, 0, "cooldown ends");
+    assertEq(shaman.memberStakes(member1), 1, "member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), 600, "votes");
   }
 }
 
@@ -1546,7 +1640,7 @@ contract UnstakingFromDeregisteredRole is WithInstanceTest {
 
     // member1 can unstake with no cooldown
     vm.prank(member1);
-    vm.expectEmit(true, true, true, true);
+    vm.expectEmit();
     emit UnstakeCompleted(member1, role1Hat, stake);
     shaman.unstakeFromDeregisteredRole(role1Hat);
 
@@ -1558,11 +1652,50 @@ contract UnstakingFromDeregisteredRole is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
-  function test_roleStillRegistered_reverts() public { }
+  function test_revert_roleStillRegistered() public {
+    // create and register a mutable role
+    role1Hat = addRole(minStake, true);
 
-  function test_insufficientStake_reverts() public { }
+    // member1 stakes and claims w/ enough shares
+    stake = minStake;
+    grantShares(member1, stake);
+    vm.prank(member1);
+    shaman.stakeAndClaimRole(role1Hat, stake, member1);
 
-  function test_inBadStanding_slashes() public { }
+    // member1 can't unstake from a role that's still registered
+    vm.prank(member1);
+    vm.expectRevert(RoleStillRegistered.selector);
+    shaman.unstakeFromDeregisteredRole(role1Hat);
+  }
 
-  function test_inCooldown_succeeds() public { }
+  function test_inBadStanding_slashes() public {
+    // create and register a mutable role
+    role1Hat = addRole(minStake, true);
+
+    // member1 stakes and claims w/ enough shares
+    stake = minStake;
+    grantShares(member1, stake);
+    vm.prank(member1);
+    shaman.stakeAndClaimRole(role1Hat, stake, member1);
+
+    // member is placed in bad standing
+    vm.prank(judge);
+    shaman.setStanding(role1Hat, member1, false);
+
+    // role is deregistered
+    vm.prank(roleManager);
+    shaman.deregisterRole(role1Hat);
+
+    // member1 is slashed when attempting to unstake
+    vm.expectEmit();
+    emit Slashed(member1, role1Hat, stake);
+    shaman.completeUnstakeFromRole(role1Hat, member1);
+
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
+    assertEq(retStakedAmount, 0);
+    assertEq(retUnstakingAmount, 0);
+    assertEq(retCanUnstakeAfter, 0);
+    assertEq(shaman.memberStakes(member1), 0);
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), 0);
+  }
 }

@@ -42,7 +42,7 @@ interface IRoleStakingShaman {
   /*//////////////////////////////////////////////////////////////
                           STATE VARIABLES
   //////////////////////////////////////////////////////////////*/
-  function memberStakes(address member) external view returns (uint256 totalStaked);
+  function memberStakes(address member) external view returns (uint112 totalStaked);
 
   /// @notice The minimum amount of tokens that must be staked in order to be eligible for a role
   /// @dev Roles with minStake == 0 are considered invalid with respect to this contract
@@ -65,6 +65,7 @@ interface IRoleStakingShaman {
     string memory _imageURI,
     uint112 _minStake
   ) external returns (uint256 _hat);
+
   function createSubRole(
     uint256 _admin,
     string memory _details,
@@ -75,7 +76,8 @@ interface IRoleStakingShaman {
     string memory _imageURI,
     uint112 _minStake
   ) external returns (uint256 _hat);
-  function registerRole(uint256 _hat, uint112 _minStake) external;
+
+  function registerRole(uint256 _hat, uint112 _minStake, address _eligibility) external;
   function deregisterRole(uint256 _hat) external;
   function setMinStake(uint256 _hat, uint112 _minStake) external;
 
@@ -101,6 +103,6 @@ interface IRoleStakingShaman {
                             VIEW FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
-  function getStakedSharesAndProxy(address _member) external view returns (uint256 amount, address stakingProxy);
+  function getStakedSharesAndProxy(address _member) external view returns (uint112 amount, address stakingProxy);
   function cooldownBuffer() external view returns (uint32);
 }

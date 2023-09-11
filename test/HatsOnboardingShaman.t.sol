@@ -28,13 +28,12 @@ contract HatsOnboardingShamanTest is DeployImplementation, Test {
 
   error AlreadyBoarded();
   error NotWearingMemberHat();
-  error NotWearingOwnerHat();
+  error NotOwner();
   error StillWearsMemberHat(address member);
   error NoLoot();
   error NoShares(address member);
   error NotMember(address nonMember);
   error NotInBadStanding(address member);
-  error BadStartingShares();
 
   event Onboarded(address member, uint256 sharesMinted);
   event Offboarded(address member, uint256 sharesDownConverted);
@@ -212,12 +211,6 @@ contract Deployment is WithInstanceTest {
 
   function test_lootToken() public {
     assertEq(address(shaman.LOOT_TOKEN()), address(lootToken));
-  }
-
-  function test_badStartingShares_reverts() public {
-    vm.expectRevert(BadStartingShares.selector);
-    // try deploying a new shaman for a different member hat and too-low starting shares
-    deployInstance(predictedBaalAddress, memberHat + 1, tophat, 1 ether - 1);
   }
 }
 
@@ -996,19 +989,15 @@ contract SetStartingShares is WithInstanceTest {
     newStartingShares = startingShares + 1;
 
     vm.prank(nonWearer);
-    vm.expectRevert(NotWearingOwnerHat.selector);
-    shaman.setStartingShares(newStartingShares);
-
-    assertEq(shaman.startingShares(), startingShares);
-  }
-
-  function test_owner_tooLow_reverts() public {
-    newStartingShares = MIN_STARTING_SHARES - 1;
-
-    vm.prank(dao);
-    vm.expectRevert(BadStartingShares.selector);
+    vm.expectRevert(NotOwner.selector);
     shaman.setStartingShares(newStartingShares);
 
     assertEq(shaman.startingShares(), startingShares);
   }
 }
+
+contract SetRoleStakingShaman is WithInstanceTest {
+// TODO
+}
+
+// TODO test with HatsRoleStakingShaman

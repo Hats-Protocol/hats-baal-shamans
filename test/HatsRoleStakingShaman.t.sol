@@ -44,7 +44,6 @@ contract HatsRoleStakingShamanTest is DeployImplementation, Test {
   error NotInBadStanding();
   error NotRoleManager();
   error NotJudge();
-  error NotHatAdmin();
   error HatImmutable();
 
   function setUp() public virtual {

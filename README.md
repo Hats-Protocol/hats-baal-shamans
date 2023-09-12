@@ -47,7 +47,7 @@ A Baal manager shaman that allows members of the DAO to stake their shares to ea
 
 ### Special Roles
 
-The `ROLE_MANAGER` is a special role that can create new roles, set a staking requirement for (aka register) existing roles, or change/remove staking requirements for registered roles. 
+The `ROLE_MANAGER` is a special role that can create new roles, set a staking requirement for (aka register) existing roles, or change/remove staking requirements for registered roles.
 
 The `JUDGE` is a special role that can put stakers in bad standing.
 
@@ -55,7 +55,7 @@ Each role is defined by a hatId.
 
 ### Creating, Registering, and Deregistering DAO Roles
 
-The `ROLE_MANAGER` can create, register, and deregister roles. Each role is a Hats Protocol hat, and referenced in this contract by its hatId. 
+The `ROLE_MANAGER` can create, register, and deregister roles. Each role is a Hats Protocol hat, and referenced in this contract by its hatId.
 
 Creating a new role or registering an existing role entails the following:
 
@@ -70,7 +70,7 @@ The `ROLE_MANAGER` can also change the minimum staking threshold for a registere
 
 DAO members that stake a sufficient number of shares on a given role are eligible to have that role (aka "wear that hat"). DAO members can stake shares on multiple roles, as long as they have sufficient shares to meet the minimum staking requirement for each role.
 
-Note that DAO members can stake any amount they choose on a given role. They do not have to stake the minimum staking requirement. However, if they stake less than the minimum staking requirement, they will not be eligible to claim that role. 
+Note that DAO members can stake any amount they choose on a given role. They do not have to stake the minimum staking requirement. However, if they stake less than the minimum staking requirement, they will not be eligible to claim that role.
 
 Why would a member choose to stake more than the minimum? One example is that if the hat's eligibility is some contract other than the Hats Role Staking Shaman itself — such as a module that also requires approval from the DAO — then staking a larger amount may increase the likelihood of the DAO approving them for that role.
 
@@ -96,7 +96,7 @@ If at any point the member becomes in bad standing for the role, they will be sl
 
 #### Resetting the Unstaking Process
 
-Sometimes, a staker may want to restart the unstaking process. 
+Sometimes, a staker may want to restart the unstaking process.
 
 This can be for any reason, but the most common is that since their cooldown period began, their staked shares have been reduced (such as by another shaman burning them). In this case, `completeUnstakeFromRole()` would fail, since they would no longer have sufficient shares to withdraw. Resetting would allow them to reduce the number of shares they are attempting to unstake to a number they can actually withdraw.
 

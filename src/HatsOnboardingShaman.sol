@@ -248,7 +248,7 @@ contract HatsOnboardingShaman is HatsModule {
 
   /**
    * @notice Reboards the caller to the DAO, if they were previously offboarded but are once again wearing the member
-   * hat. Reboarded members regaing their voting power by having their loot up-converted to shares.
+   * hat. Reboarded members regain their voting power by having their loot up-converted to shares.
    */
   function reboard() external wearsMemberHat(msg.sender) {
     uint256 amount = LOOT_TOKEN.balanceOf(msg.sender);

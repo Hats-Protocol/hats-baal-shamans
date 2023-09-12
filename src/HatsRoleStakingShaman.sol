@@ -14,6 +14,8 @@ import { StakingProxy } from "src/StakingProxy.sol";
 /**
  * @title Hats Role Staking Shaman
  * @notice This contract manages staking and unstaking of DAO members' shares for Hats Protocol-powered roles.
+ * @dev This contract assumes that the Baal (along with its other approved shamans) is trusted and will not wontonly
+ * burn members' shares, whether staked or not staked.
  * @author Haberdasher Labs
  * @author @spengrah
  * @dev This contract inherits from the HatsModule contract, and is meant to be deployed as a clone from the
@@ -463,17 +465,22 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
       return;
     }
 
-    // get their remaining staked balance
+    // get the remaining staked balance from their proxy
     (uint256 proxyBalance, address proxy) = getStakedSharesAndProxy(msg.sender);
-    uint112 amount = uint112(proxyBalance);
+    // get their current stake for _hat
+    Stake storage stake = roleStakes[_hat][msg.sender];
+    uint112 allStaked = stake.stakedAmount + stake.unstakingAmount;
+
+    // Amount to unstake is the lesser of their allStaked and their proxy balance. This ensures that they can't use this
+    // to withdraw their shares staked to other roles
+    uint112 amount = allStaked < proxyBalance ? allStaked : uint112(proxyBalance);
 
     // clear their staked amount, and also clear any cooldown
-    Stake storage stake = roleStakes[_hat][msg.sender];
     stake.stakedAmount = 0;
     stake.unstakingAmount = 0;
     stake.canUnstakeAfter = 0;
 
-    // transfer their amount of shares from the msg.sender's staking proxy to msg.sender
+    // transfer their amount to unstake from the msg.sender's staking proxy to msg.sender
     if (amount > 0) _transferShares(proxy, msg.sender, amount);
 
     // log the unstake
@@ -548,8 +555,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /**
-   * @dev Internal function to slash a member's stake for a role, if they are in bad standing. Called by {slash} and
-   * {_checkSlash}.
+   * @dev Internal function to slash a member's stake for a role, if they are in bad standing.
    * @param _member The member to slash
    * @param _hat The role to slash for
    */
@@ -588,20 +594,6 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
     // log the slash
     emit Slashed(_member, _hat, amount);
-  }
-
-  /**
-   * @dev Internal function to check if a member is in bad standing for a role, and slash their stake if so. Called by
-   * {beginUnstakeFromRole} and {completeUnstakeFromRole}.
-   * @param _member The member to check and potentially slash
-   * @param _hat The role to check for
-   */
-  function _checkSlash(address _member, uint256 _hat) internal returns (bool _slashed) {
-    // check if _member is in bad standing for _hat
-    if (!HATS().isInGoodStanding(_member, _hat)) {
-      _slashStake(_member, _hat);
-      _slashed = true;
-    }
   }
 
   /*//////////////////////////////////////////////////////////////

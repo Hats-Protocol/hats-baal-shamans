@@ -1651,6 +1651,86 @@ contract UnstakingFromDeregisteredRole is WithInstanceTest {
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
   }
 
+  function test_withTwoRoles() public {
+    // create and register two mutable roles
+    role1Hat = addRole(minStake, true);
+    role2Hat = addRole(minStake * 2, true);
+
+    // member1 stakes and claims both w/ enough shares
+    stake = minStake;
+    grantShares(member1, stake * 3);
+    vm.prank(member1);
+    shaman.stakeAndClaimRole(role1Hat, stake, member1);
+    vm.prank(member1);
+    shaman.stakeAndClaimRole(role2Hat, stake * 2, member1);
+
+    // role1 is deregistered
+    vm.prank(roleManager);
+    shaman.deregisterRole(role1Hat);
+
+    // member1 can unstake with no cooldown
+    vm.prank(member1);
+    vm.expectEmit();
+    emit UnstakeCompleted(member1, role1Hat, stake);
+    shaman.unstakeFromDeregisteredRole(role1Hat);
+
+    // member1's stake is updated for role1...
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
+    assertEq(retStakedAmount, 0);
+    assertEq(retUnstakingAmount, 0);
+    assertEq(shaman.memberStakes(member1), stake * 2);
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake * 3);
+
+    // ...but not altered for role2
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role2Hat, member1);
+    assertEq(retStakedAmount, stake * 2);
+    assertEq(retUnstakingAmount, 0);
+  }
+
+  function test_withStakeRemoved() public {
+    // create and register two mutable roles
+    role1Hat = addRole(minStake, true);
+    role2Hat = addRole(minStake * 2, true);
+
+    // member1 stakes and claims both w/ enough shares
+    stake = minStake;
+    grantShares(member1, stake * 3);
+    vm.prank(member1);
+    shaman.stakeAndClaimRole(role1Hat, stake, member1);
+    vm.prank(member1);
+    shaman.stakeAndClaimRole(role2Hat, stake * 2, member1);
+
+    // role1 is deregistered
+    vm.prank(roleManager);
+    shaman.deregisterRole(role1Hat);
+
+    // somehow member1 loses their role1 stake amount (eg a different shaman burns shares from their proxy)
+    members = new address[](1);
+    members[0] = predictStakingProxyAddress(member1);
+    sharesBurned = new uint256[](1);
+    sharesBurned[0] = stake;
+    vm.prank(address(shaman));
+    baal.burnShares(members, sharesBurned);
+
+    // member1 can unstake from hat1 with no cooldown
+    vm.prank(member1);
+    vm.expectEmit();
+    emit UnstakeCompleted(member1, role1Hat, stake);
+    shaman.unstakeFromDeregisteredRole(role1Hat);
+
+    // member1's stake is updated for role1...
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
+    assertEq(retStakedAmount, 0, "role1 stake");
+    assertEq(retUnstakingAmount, 0, "role1 unstaking");
+    assertEq(shaman.memberStakes(member1), stake, "member1 stakes");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake * 2, "member 1votes");
+
+    // ...but not altered for role2
+    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role2Hat, member1);
+    assertEq(retStakedAmount, stake * 2, "role2 stake");
+    assertEq(retUnstakingAmount, 0, "role2 unstaking");
+  }
+
   function test_revert_roleStillRegistered() public {
     // create and register a mutable role
     role1Hat = addRole(minStake, true);

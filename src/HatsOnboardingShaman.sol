@@ -337,17 +337,19 @@ contract HatsOnboardingShaman is HatsModule {
     if (stakedAmount > 0) {
       // there are staked shares, so the shares in the proxy must be burned as well
       if (shareAmount > 0) {
-        members = new address[](1);
-        shares = new uint256[](1);
-        members[0] = proxy;
-        shares[0] = stakedAmount;
-      } else {
+        // there are shares, so we need to burn both shares and staked shares
         members = new address[](2);
         shares = new uint256[](2);
         members[0] = _member;
         members[1] = proxy;
         shares[0] = shareAmount;
         shares[1] = stakedAmount;
+      } else {
+        // there are no shares, so we just need to burn staked shares
+        members = new address[](1);
+        shares = new uint256[](1);
+        members[0] = proxy;
+        shares[0] = stakedAmount;
       }
 
       BAAL().burnShares(members, shares);

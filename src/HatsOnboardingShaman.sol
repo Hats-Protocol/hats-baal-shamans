@@ -263,69 +263,33 @@ contract HatsOnboardingShaman is HatsModule {
   function kick(address _member) external {
     if (HATS().isInGoodStanding(_member, hatId())) revert NotInBadStanding(_member);
 
-    uint256 stakedAmount;
-    address proxy;
-
     uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
     uint256 lootAmount = LOOT_TOKEN.balanceOf(_member);
     address[] memory members;
     uint256[] memory shares;
     uint256[] memory loots;
 
-    if (stakedAmount > 0) {
-      // there are staked shares, so the shares in the proxy must be burned as well
-      if (shareAmount > 0) {
-        // there are shares, so we need to burn both shares and staked shares
-        members = new address[](2);
-        shares = new uint256[](2);
-        members[0] = _member;
-        members[1] = proxy;
-        shares[0] = shareAmount;
-        shares[1] = stakedAmount;
-      } else {
-        // there are no shares, so we just need to burn staked shares
-        members = new address[](1);
-        shares = new uint256[](1);
-        members[0] = proxy;
-        shares[0] = stakedAmount;
-      }
+    members = new address[](1);
+    shares = new uint256[](1);
+    loots = new uint256[](1);
+    members[0] = _member;
 
-      BAAL().burnShares(members, shares);
-
-      if (lootAmount > 0) {
-        // there's just a single loot amount, so we need arrays of length 1
-        loots = new uint256[](1);
-        address[] memory lootMembers = new address[](1);
-        lootMembers[0] = _member;
-        loots[0] = lootAmount;
-
-        BAAL().burnLoot(lootMembers, loots);
-      }
-
-      emit Kicked(_member, shareAmount + stakedAmount, lootAmount);
-    } else {
-      members = new address[](1);
-      shares = new uint256[](1);
-      loots = new uint256[](1);
-      members[0] = _member;
-
-      unchecked {
-        /// @dev safe, since if this overflows, we know _member is a member, so we should not revert
-        if (shareAmount + lootAmount == 0) revert NotMember(_member);
-      }
-
-      if (shareAmount > 0) {
-        shares[0] = shareAmount;
-        BAAL().burnShares(members, shares);
-      }
-
-      if (lootAmount > 0) {
-        loots[0] = lootAmount;
-        BAAL().burnLoot(members, loots);
-      }
-
-      emit Kicked(_member, shareAmount, lootAmount);
+    unchecked {
+      /// @dev safe, since if this overflows, we know _member is a member, so we should not revert
+      if (shareAmount + lootAmount == 0) revert NotMember(_member);
     }
+
+    if (shareAmount > 0) {
+      shares[0] = shareAmount;
+      BAAL().burnShares(members, shares);
+    }
+
+    if (lootAmount > 0) {
+      loots[0] = lootAmount;
+      BAAL().burnLoot(members, loots);
+    }
+
+    emit Kicked(_member, shareAmount, lootAmount);
   }
 
   /*//////////////////////////////////////////////////////////////

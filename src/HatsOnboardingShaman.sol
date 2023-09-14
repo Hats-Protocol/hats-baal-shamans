@@ -3,7 +3,6 @@ pragma solidity ^0.8.19;
 
 // import { console2 } from "forge-std/Test.sol"; // remove before deploy
 import { HatsModule } from "hats-module/HatsModule.sol";
-import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
 import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
 
@@ -30,7 +29,6 @@ contract HatsOnboardingShaman is HatsModule {
   error NoShares(address member);
   error NotMember(address nonMember);
   error NotInBadStanding(address member);
-  error BatchActionsNotSupportedWithRoleStakingShaman(address roleStakingShaman);
 
   /*//////////////////////////////////////////////////////////////
                               EVENTS
@@ -43,7 +41,6 @@ contract HatsOnboardingShaman is HatsModule {
   event Kicked(address member, uint256 sharesBurned, uint256 lootBurned);
   event KickedBatch(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
   event StartingSharesSet(uint256 newStartingShares);
-  event RoleStakingShamanSet(address newRoleStakingShaman);
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
@@ -94,7 +91,6 @@ contract HatsOnboardingShaman is HatsModule {
   //////////////////////////////////////////////////////////////*/
 
   uint256 public startingShares;
-  address public roleStakingShaman;
 
   /*//////////////////////////////////////////////////////////////
                           CONSTRUCTOR
@@ -127,14 +123,8 @@ contract HatsOnboardingShaman is HatsModule {
    * number of shares
    */
   function onboard() external wearsMemberHat(msg.sender) {
-    uint256 stakedAmount;
-    address roleStakingShaman_ = roleStakingShaman;
-    if (roleStakingShaman_ > address(0)) {
-      (stakedAmount,) = _getStakedSharesAndProxy(msg.sender, roleStakingShaman_);
-    }
-
     /// @dev checked since if this overflows, we know msg.sender is a member and we need to revert
-    if (SHARES_TOKEN.balanceOf(msg.sender) + stakedAmount + LOOT_TOKEN.balanceOf(msg.sender) > 0) {
+    if (SHARES_TOKEN.balanceOf(msg.sender) + LOOT_TOKEN.balanceOf(msg.sender) > 0) {
       revert AlreadyBoarded();
     }
 
@@ -154,11 +144,6 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _members The addresses of the members to offboard.
    */
   function offboard(address[] calldata _members) external {
-    address roleStakingShaman_ = roleStakingShaman;
-    if (roleStakingShaman_ > address(0)) {
-      revert BatchActionsNotSupportedWithRoleStakingShaman(roleStakingShaman_);
-    }
-
     uint256 length = _members.length;
     uint256[] memory amounts = new uint256[](length);
     uint256 amount;
@@ -186,64 +171,28 @@ contract HatsOnboardingShaman is HatsModule {
 
   /**
    * @notice Offboards a single member from the DAO, if they are not wearing the member hat. Offboarded members
-   * lose their voting power by having their shares down-converted to loot. If the member has staked shares elsewhere
-   * (eg for a role via a HatsRoleStakingShaman), then the staked shares are also converted to loot, resulting in the
-   * member losing that role.
+   * lose their voting power by having their shares down-converted to loot.
    * @param _member The address of the member to offboard.
    */
   function offboard(address _member) external {
     if (HATS().isWearerOfHat(_member, hatId())) revert StillWearsMemberHat(_member);
 
-    uint256 stakedAmount;
-    address proxy;
     address[] memory shareMembers;
     uint256[] memory shareAmounts;
 
-    address roleStakingShaman_ = roleStakingShaman;
-
-    if (roleStakingShaman_ > address(0)) {
-      (stakedAmount, proxy) = _getStakedSharesAndProxy(_member, roleStakingShaman_);
-    }
-
     uint256 amount = SHARES_TOKEN.balanceOf(_member);
 
-    if (stakedAmount > 0) {
-      // there are staked shares, so the shares in the proxy must be burned as well
-      shareMembers = new address[](2);
-      shareAmounts = new uint256[](2);
-      shareMembers[0] = _member;
-      shareMembers[1] = proxy;
-      shareAmounts[0] = amount;
-      shareAmounts[1] = stakedAmount;
+    if (amount == 0) revert NoShares(_member);
 
-      // we combine the shares and staked shares into a single loot amount to mint
-      address[] memory lootMembers = new address[](1);
-      uint256[] memory lootAmounts = new uint256[](1);
-      lootMembers[0] = _member;
-      unchecked {
-        /// @dev Safe, since stakedAmount is always <= the original amount staked by the _member, so it can't overflow
-        amount += stakedAmount;
-      }
-      lootAmounts[0] = amount;
+    shareMembers = new address[](1);
+    shareAmounts = new uint256[](1);
+    shareMembers[0] = _member;
+    shareAmounts[0] = amount;
 
-      BAAL().burnShares(shareMembers, shareAmounts);
-      BAAL().mintLoot(lootMembers, lootAmounts);
+    BAAL().burnShares(shareMembers, shareAmounts);
+    BAAL().mintLoot(shareMembers, shareAmounts);
 
-      emit Offboarded(_member, amount);
-    } else {
-      if (amount == 0) revert NoShares(_member);
-
-      // there are no staked shares, so we just burn the shares and mint loot from the same arrays
-      shareMembers = new address[](1);
-      shareAmounts = new uint256[](1);
-      shareMembers[0] = _member;
-      shareAmounts[0] = amount;
-
-      BAAL().burnShares(shareMembers, shareAmounts);
-      BAAL().mintLoot(shareMembers, shareAmounts);
-
-      emit Offboarded(_member, amount);
-    }
+    emit Offboarded(_member, amount);
   }
 
   /**
@@ -272,11 +221,6 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _members The addresses of the members to kick.
    */
   function kick(address[] calldata _members) external {
-    address roleStakingShaman_ = roleStakingShaman;
-    if (roleStakingShaman_ > address(0)) {
-      revert BatchActionsNotSupportedWithRoleStakingShaman(roleStakingShaman_);
-    }
-
     uint256 length = _members.length;
     uint256[] memory shares = new uint256[](length);
     uint256[] memory loots = new uint256[](length);
@@ -321,12 +265,6 @@ contract HatsOnboardingShaman is HatsModule {
 
     uint256 stakedAmount;
     address proxy;
-
-    address roleStakingShaman_ = roleStakingShaman;
-
-    if (roleStakingShaman_ > address(0)) {
-      (stakedAmount, proxy) = _getStakedSharesAndProxy(_member, roleStakingShaman_);
-    }
 
     uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
     uint256 lootAmount = LOOT_TOKEN.balanceOf(_member);
@@ -391,18 +329,6 @@ contract HatsOnboardingShaman is HatsModule {
   }
 
   /*//////////////////////////////////////////////////////////////
-                        INTERNAL FUNCTIONS
-  //////////////////////////////////////////////////////////////*/
-
-  function _getStakedSharesAndProxy(address member, address _roleStakingShaman)
-    internal
-    view
-    returns (uint256 amount, address proxy)
-  {
-    (amount, proxy) = IRoleStakingShaman(_roleStakingShaman).getStakedSharesAndProxy(member);
-  }
-
-  /*//////////////////////////////////////////////////////////////
                         OWNER FUNCTIONS
   //////////////////////////////////////////////////////////////*/
 
@@ -415,12 +341,6 @@ contract HatsOnboardingShaman is HatsModule {
     startingShares = _startingShares;
     // log the change
     emit StartingSharesSet(_startingShares);
-  }
-
-  function setRoleStakingShaman(address _newRoleStakingShaman) external onlyOwner {
-    roleStakingShaman = _newRoleStakingShaman;
-
-    emit RoleStakingShamanSet(_newRoleStakingShaman);
   }
 
   /*//////////////////////////////////////////////////////////////

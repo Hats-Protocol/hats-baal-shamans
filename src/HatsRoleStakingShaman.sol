@@ -7,7 +7,6 @@ import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
 import { IHatsEligibility } from "hats-protocol/Interfaces/IHatsEligibility.sol";
 import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
-import { LibClone } from "solady/utils/LibClone.sol";
 import { LibHatId } from "src/LibHatId.sol";
 
 /**
@@ -35,6 +34,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   error RoleStillRegistered();
   /// @notice Thrown when attempting to claim a role for which the claimer is not explicitly eligible
   error NotEligible();
+  /// @notice Thrown when attempting to stake more shares than the caller has outstanding
+  error InsufficientShares();
   /// @notice Thrown when attempting to unstake from a role before the cooldown period has ended
   error CooldownNotEnded();
   /// @notice Thrown when attempting to claim or unstake from a role without sufficient stake
@@ -132,7 +133,6 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   function _setUp(bytes calldata _initData) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
     LOOT_TOKEN = IBaalToken(BAAL().lootToken());
-    // TODO add loot slashing when not enough shares
 
     cooldownBuffer = abi.decode(_initData, (uint32));
   }
@@ -368,7 +368,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
       return;
     }
 
-    // caller must have at least _amount shares staked for _hat & more shares than their total stake
+    // caller must have at least _amount shares staked for _hat & more total shares than their total stake
     Stake storage stake = roleStakes[_hat][msg.sender];
     uint112 sharesBalance = uint112(SHARES_TOKEN.balanceOf(msg.sender));
     if (stake.stakedAmount < _amount || sharesBalance < _amount) revert InsufficientStake();
@@ -377,13 +377,13 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     if (stake.unstakingAmount > 0) revert CooldownNotEnded();
 
     // otherwise, proceed with the unstake, moving their stake for _hat to the cooldown queue
+    // we leave their total stake unchanged, since they need to cover their unstakingAmount during cooldown
     stake.unstakingAmount = _amount;
     unchecked {
       /// @dev Safe until 2106
       stake.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod();
       /// @dev Safe since stake is sufficient
       stake.stakedAmount -= _amount;
-      memberStakes[msg.sender] -= _amount;
     }
 
     // log the unstake initiation
@@ -407,16 +407,13 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
     unchecked {
       if (oldUnstakingAmount > _amount) {
-        // if the new unstaking amount is less than the old one, we need to increase the stakedAmount and memberStakes
+        // if the new unstaking amount is less than the old one, we need to increase the stakedAmount
         /// @dev Should not overflow given the condition
         stake.stakedAmount += oldUnstakingAmount - _amount;
-        memberStakes[msg.sender] += oldUnstakingAmount - _amount;
       } else {
-        // if the new unstaking amount is greater than the old one, we need to decrease the stakedAmount and
-        // memberStakes
+        // if the new unstaking amount is greater than the old one, we need to decrease the stakedAmount
         /// @dev Should not underflow given the condition
         stake.stakedAmount -= _amount - oldUnstakingAmount;
-        memberStakes[msg.sender] -= _amount - oldUnstakingAmount;
       }
       // update the unstaking amount to the new value
       stake.unstakingAmount = _amount;
@@ -441,11 +438,18 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     // cooldown period must be over
     if (stake.canUnstakeAfter > block.timestamp) revert CooldownNotEnded();
 
-    // caller must have sufficient total stake and sufficient actual shares in their staking proxy
+    // caller must have sufficient total stake and shares to cover the unstaking amount
     uint112 amount = stake.unstakingAmount;
-    if (SHARES_TOKEN.balanceOf(_member) < amount) revert InsufficientStake();
+    if (SHARES_TOKEN.balanceOf(_member) < amount) revert InsufficientShares();
+    if (memberStakes[_member] < amount) revert InsufficientStake();
 
-    // remove their stake from the cooldown queue
+    // reduce their total stake amount
+    unchecked {
+      /// @dev Should not underflow given the sufficiency check above
+      memberStakes[_member] -= amount;
+    }
+
+    // clear their stake from the cooldown queue
     stake.unstakingAmount = 0;
     stake.canUnstakeAfter = 0;
 
@@ -460,6 +464,16 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     // get their current stake for _hat
     Stake storage stake = roleStakes[_hat][msg.sender];
     uint112 allStaked = stake.stakedAmount + stake.unstakingAmount;
+
+    // caller must have sufficient total stake and shares to cover the unstaking amount
+    uint112 amount = stake.unstakingAmount;
+    if (SHARES_TOKEN.balanceOf(msg.sender) < amount) revert InsufficientShares();
+
+    // reduce their total stake amount
+    unchecked {
+      /// @dev Should not underflow given the sufficiency check above
+      memberStakes[msg.sender] -= allStaked;
+    }
 
     // clear their staked amount, and also clear any cooldown
     stake.stakedAmount = 0;
@@ -485,12 +499,21 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
   /**
    * @dev Internal function for staking on a role. Called by {stakeOnRole} and {stakeAndClaimRole}. Staked shares are
-   * held in a staking proxy contract unique to `_member`.
+   * held in a staking proxy contract unique to `_member`. _member must have enough outstanding shares to cover the new
+   * _amount.
    * @param _member The member staking on the role
    * @param _hat The role to stake on
    * @param _amount The amount of shares to stake, in uint112 ERC20 decimals
    */
   function _stakeOnRole(address _member, uint256 _hat, uint112 _amount) internal {
+    // get _member's share balance
+    uint112 shareBalance = uint112(SHARES_TOKEN.balanceOf(_member));
+    // get _member's total stake
+    uint112 totalStake = memberStakes[_member];
+
+    // _member must have enough shares to cover the new stake
+    if (shareBalance - totalStake < _amount) revert InsufficientShares();
+
     // add _amount to _member's stake for _hat
     roleStakes[_hat][_member].stakedAmount += _amount;
     // add _amount to _member's total stakes
@@ -576,6 +599,12 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
       // burn the loot
       _burnLoot(_member, lootSlashAmount);
+    }
+
+    // reduce their total stake by the total amount we're slashing
+    unchecked {
+      /// @dev Should not underflow given the checks above
+      memberStakes[_member] -= shareSlashAmount + lootSlashAmount;
     }
 
     // burn the shares

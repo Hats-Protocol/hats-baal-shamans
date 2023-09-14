@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import { Test, console2 } from "forge-std/Test.sol";
-import { HatsRoleStakingShaman, LibClone } from "../src/HatsRoleStakingShaman.sol";
+import { HatsRoleStakingShaman } from "../src/HatsRoleStakingShaman.sol";
 import { IRoleStakingShaman } from "../src/interfaces/IRoleStakingShaman.sol";
 import { DeployImplementation } from "../script/HatsRoleStakingShaman.s.sol";
 import {
@@ -28,7 +28,7 @@ contract HatsRoleStakingShamanTest is DeployImplementation, Test {
   string public SHAMAN_VERSION = "shaman test version";
 
   event MinStakeSet(uint256 _hat, uint112 _minStake);
-  event Slashed(address member, uint256 hat, uint112 amount);
+  event Slashed(address member, uint256 hat, uint112 sharesBurned, uint112 lootBurned);
   event Staked(address member, uint256 hat, uint112 amount);
   event UnstakeBegun(address member, uint256 hat, uint112 amount);
   event UnstakeCompleted(address member, uint256 hat, uint112 amount);
@@ -39,6 +39,7 @@ contract HatsRoleStakingShamanTest is DeployImplementation, Test {
   error RoleStillRegistered();
   error NotEligible();
   error CooldownNotEnded();
+  error InsufficientShares();
   error InsufficientStake();
   error NotInBadStanding();
   error NotRoleManager();
@@ -532,7 +533,7 @@ contract Staking is WithInstanceTest {
     // give member1 some shares
     grantShares(member1, stake);
 
-    // member1 stakes, delegating to self
+    // member1 stakes
     vm.prank(member1);
     vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
@@ -575,9 +576,9 @@ contract Staking is WithInstanceTest {
     // give member1 too few shares
     grantShares(member1, stake - 1);
 
-    // member1 stakes, delegating to self
+    // member1 stakes
     vm.prank(member1);
-    vm.expectRevert();
+    vm.expectRevert(InsufficientShares.selector);
     shaman.stakeOnRole(role1Hat, stake);
 
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
@@ -585,29 +586,6 @@ contract Staking is WithInstanceTest {
     assertEq(retStakedAmount, 0);
     assertEq(shaman.memberStakes(member1), 0);
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake - 1);
-  }
-
-  function test_delegateToOther_succeeds() public {
-    // create and register a mutable role
-    role1Hat = addRole(minStake, true);
-
-    stake = 5000;
-
-    // give member1 some shares
-    grantShares(member1, stake);
-
-    // member1 stakes, delegating to other address
-    vm.prank(member1);
-    vm.expectEmit();
-    emit Staked(member1, role1Hat, stake);
-    shaman.stakeOnRole(role1Hat, stake);
-
-    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
-
-    assertEq(retStakedAmount, stake);
-    assertEq(shaman.memberStakes(member1), stake);
-    assertEq(shaman.SHARES_TOKEN().getVotes(member1), 0);
-    assertEq(shaman.SHARES_TOKEN().getVotes(nonWearer), stake);
   }
 
   function test_secondStake_happy() public {
@@ -619,7 +597,7 @@ contract Staking is WithInstanceTest {
     // give member1 some shares
     grantShares(member1, stake);
 
-    // member1 stakes, delegating to self
+    // member1 stakes
     vm.prank(member1);
     vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
@@ -634,7 +612,7 @@ contract Staking is WithInstanceTest {
     // give member1 some more shares
     grantShares(member1, stake + 500);
 
-    // member1 stakes again, delegating to self
+    // member1 stakes again
     vm.prank(member1);
     vm.expectEmit();
     emit Staked(member1, role1Hat, stake);
@@ -866,28 +844,6 @@ contract StakingAndClaiming is WithInstanceTest {
 
     assertFalse(HATS.isWearerOfHat(member1, role1Hat));
   }
-
-  function test_delegateToOther_succeeds() public {
-    // create and register a mutable role
-    role1Hat = addRole(minStake, true);
-    // set stake value
-    stake = minStake;
-    // give member1 some shares
-    grantShares(member1, stake);
-    // member1 stakes enough shares
-    vm.prank(member1);
-    vm.expectEmit();
-    emit Staked(member1, role1Hat, stake);
-    shaman.stakeAndClaimRole(role1Hat, stake);
-
-    assertTrue(HATS.isWearerOfHat(member1, role1Hat));
-
-    (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
-
-    assertEq(retStakedAmount, stake);
-    assertEq(shaman.memberStakes(member1), stake);
-    assertEq(shaman.SHARES_TOKEN().getVotes(nonWearer), stake);
-  }
 }
 
 contract SettingStanding is WithInstanceTest {
@@ -1035,7 +991,7 @@ contract Slashing is WithInstanceTest {
     // anybody can now slash member1's stake for roleHat1
     vm.prank(nonWearer);
     vm.expectEmit();
-    emit Slashed(member1, role1Hat, stake);
+    emit Slashed(member1, role1Hat, stake, 0);
     shaman.slash(member1, role1Hat);
 
     // member1's stake is now 0
@@ -1183,7 +1139,7 @@ contract Slashing is WithInstanceTest {
     // member1's stake is slashed
     vm.prank(nonWearer);
     vm.expectEmit();
-    emit Slashed(member1, role1Hat, stake);
+    emit Slashed(member1, role1Hat, stake, 0);
     shaman.slash(member1, role1Hat);
 
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
@@ -1206,7 +1162,7 @@ contract BeginUnstaking is WithInstanceTest {
     vm.prank(member1);
     shaman.stakeAndClaimRole(role1Hat, stake);
 
-    // member1 begins unstaking
+    // member1 begins unstaking, enough to drop below minStake
     unstakeAmount = stake / 3;
     vm.prank(member1);
     vm.expectEmit();
@@ -1214,11 +1170,13 @@ contract BeginUnstaking is WithInstanceTest {
     shaman.beginUnstakeFromRole(role1Hat, unstakeAmount);
 
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
-    assertEq(retStakedAmount, stake - unstakeAmount);
-    assertEq(retUnstakingAmount, unstakeAmount);
-    assertEq(retCanUnstakeAfter, block.timestamp + shaman.cooldownPeriod());
-    assertEq(shaman.memberStakes(member1), stake);
-    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
+    assertEq(retStakedAmount, stake - unstakeAmount, "stakedAmount");
+    assertEq(retUnstakingAmount, unstakeAmount, "unstakingAmount");
+    assertEq(retCanUnstakeAfter, block.timestamp + shaman.cooldownPeriod(), "cooldown ends");
+    assertEq(shaman.memberStakes(member1), stake, "total member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake, "votes");
+
+    assertFalse(HATS.isWearerOfHat(member1, role1Hat));
   }
 
   function test_inBadStanding_slashes() public {
@@ -1238,7 +1196,7 @@ contract BeginUnstaking is WithInstanceTest {
     // member1 begins unstaking, but is slashed instead
     vm.prank(member1);
     vm.expectEmit();
-    emit Slashed(member1, role1Hat, stake);
+    emit Slashed(member1, role1Hat, stake, 0);
     shaman.beginUnstakeFromRole(role1Hat, stake);
 
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
@@ -1391,7 +1349,7 @@ contract CompleteUnstaking is WithInstanceTest {
 
     // member1 completes unstaking, but is slashed
     vm.expectEmit();
-    emit Slashed(member1, role1Hat, stake);
+    emit Slashed(member1, role1Hat, stake, 0);
     shaman.completeUnstakeFromRole(role1Hat, member1);
 
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
@@ -1467,10 +1425,10 @@ contract UnstakingFromDeregisteredRole is WithInstanceTest {
 
     // member1's stake is updated
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);
-    assertEq(retStakedAmount, 0);
-    assertEq(retUnstakingAmount, 0);
-    assertEq(shaman.memberStakes(member1), 0);
-    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake);
+    assertEq(retStakedAmount, 0, "stakedAmount");
+    assertEq(retUnstakingAmount, 0, "unstakingAmount");
+    assertEq(shaman.memberStakes(member1), 0, "total member stake");
+    assertEq(shaman.SHARES_TOKEN().getVotes(member1), stake, "votes");
   }
 
   function test_withTwoRoles() public {
@@ -1545,7 +1503,7 @@ contract UnstakingFromDeregisteredRole is WithInstanceTest {
 
     // member1 is slashed when attempting to unstake
     vm.expectEmit();
-    emit Slashed(member1, role1Hat, stake);
+    emit Slashed(member1, role1Hat, stake, 0);
     shaman.completeUnstakeFromRole(role1Hat, member1);
 
     (retStakedAmount, retUnstakingAmount, retCanUnstakeAfter) = shaman.roleStakes(role1Hat, member1);

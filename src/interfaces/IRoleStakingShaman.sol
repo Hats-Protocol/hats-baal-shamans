@@ -62,8 +62,7 @@ interface IRoleStakingShaman {
   struct Stake {
     uint112 stakedAmount;
     uint112 unstakingAmount;
-    // FIXME this math is not right; need to increase to 64 bits for overflow safety & use uint96 for the above values
-    uint32 canUnstakeAfter; // won't overflow until 2106, ie 2**32 / 60 / 60 / 24 / 365 = 136 years after epoch
+    uint32 canUnstakeAfter; // won't overflow until 2106, ie (2**32 - 1) / 60 / 60 / 24 / 365 = ~136 years after epoch
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -105,6 +104,14 @@ interface IRoleStakingShaman {
     external
     view
     returns (uint112 stakedAmount, uint112 unstakingAmount, uint32 canUnstakeAfter);
+
+  /**
+   * @notice The total staked by a given member, the sum of all their current role stakes and including any stakes in
+   * cooldown
+   * @param _member The member to get the staked shares for
+   * @return totalStaked The amount of shares staked by the member, in uint112 ERC20 decimals
+   */
+  function memberStakes(address _member) external view returns (uint112 totalStaked);
 
   /// @notice The amount of time, in seconds, that must elapse from the start of an unstaking process until it is
   /// completed
@@ -277,13 +284,6 @@ interface IRoleStakingShaman {
   /*//////////////////////////////////////////////////////////////
                             VIEW FUNCTIONS
   //////////////////////////////////////////////////////////////*/
-
-  /**
-   * @notice The total staked by a given member, as measured by the share balance of their staking proxy
-   * @param _member The member to get the staked shares for
-   * @return totalStaked The amount of shares staked in the member's staking proxy, in uint112 ERC20 decimals
-   */
-  function memberStakes(address _member) external view returns (uint112 totalStaked);
 
   /**
    * @notice Derives the unstaking cooldown period as the sum of the {BAAL}'s voting and grace periods, and the

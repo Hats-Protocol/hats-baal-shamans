@@ -4,7 +4,7 @@
 
 This repo contains the contracts for the following Shamans:
 
-- Hats Onboarding Shaman
+- [Hats Onboarding Shaman](#hats-onboarding-shaman)
 
 ## Hats Onboarding Shaman
 

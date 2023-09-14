@@ -23,29 +23,24 @@ contract HatsOnboardingShaman is HatsModule {
 
   error AlreadyBoarded();
   error NotWearingMemberHat();
-  error NotWearingOwnerHat();
+  error NotOwner();
   error StillWearsMemberHat(address member);
   error NoLoot();
   error NoShares(address member);
   error NotMember(address nonMember);
   error NotInBadStanding(address member);
-  error BadStartingShares();
 
   /*//////////////////////////////////////////////////////////////
                               EVENTS
   //////////////////////////////////////////////////////////////*/
 
   event Onboarded(address member, uint256 sharesMinted);
-  event Offboarded(address[] members, uint256[] sharesDownConverted);
+  event Offboarded(address member, uint256 sharesDownConverted);
+  event OffboardedBatch(address[] members, uint256[] sharesDownConverted);
   event Reboarded(address member, uint256 lootUpConverted);
-  event Kicked(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
+  event Kicked(address member, uint256 sharesBurned, uint256 lootBurned);
+  event KickedBatch(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
   event StartingSharesSet(uint256 newStartingShares);
-
-  /*//////////////////////////////////////////////////////////////
-                        INTERNAL CONSTANTS
-  //////////////////////////////////////////////////////////////*/
-
-  uint256 internal constant MIN_STARTING_SHARES = 1e18;
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
@@ -64,13 +59,13 @@ contract HatsOnboardingShaman is HatsModule {
    * --------------------------------------------------------------------+
    * CLONE IMMUTABLE "STORAGE"                                           |
    * --------------------------------------------------------------------|
-   * Offset  | Constant        | Type    | Length  | Source Contract     |
+   * Offset  | Constant            | Type    | Length | Source Contract  |
    * --------------------------------------------------------------------|
-   * 0       | IMPLEMENTATION  | address | 20      | HatsModule          |
-   * 20      | HATS            | address | 20      | HatsModule          |
-   * 40      | hatId           | uint256 | 32      | HatsModule          |
-   * 72      | BAAL            | address | 20      | this                |
-   * 92      | OWNER_HAT       | uint256 | 32      | this                |
+   * 0       | IMPLEMENTATION      | address | 20     | HatsModule       |
+   * 20      | HATS                | address | 20     | HatsModule       |
+   * 40      | hatId               | uint256 | 32     | HatsModule       |
+   * 72      | BAAL                | address | 20     | this             |
+   * 92      | OWNER_HAT           | uint256 | 32     | this             |
    * --------------------------------------------------------------------+
    */
 
@@ -85,6 +80,8 @@ contract HatsOnboardingShaman is HatsModule {
   /**
    * @dev These are not stored as immutable args in order to enable instances to be set as shamans in new Baal
    * deployments via `initializationActions`, which is not possible if these values determine an instance's address.
+   * While this means that they are stored normally in contract state, we still treat them as constants since they
+   * cannot be mutated after initialization.
    */
   IBaalToken public SHARES_TOKEN;
   IBaalToken public LOOT_TOKEN;
@@ -105,16 +102,12 @@ contract HatsOnboardingShaman is HatsModule {
                           INITIALIZER
   //////////////////////////////////////////////////////////////*/
 
-  /**
-   * @inheritdoc HatsModule
-   */
+  /// @inheritdoc HatsModule
   function _setUp(bytes calldata _initData) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
     LOOT_TOKEN = IBaalToken(BAAL().lootToken());
 
     uint256 startingShares_ = abi.decode(_initData, (uint256));
-
-    if (startingShares_ < MIN_STARTING_SHARES) revert BadStartingShares();
 
     // set the starting shares
     startingShares = startingShares_;
@@ -130,7 +123,10 @@ contract HatsOnboardingShaman is HatsModule {
    * number of shares
    */
   function onboard() external wearsMemberHat(msg.sender) {
-    if (SHARES_TOKEN.balanceOf(msg.sender) + LOOT_TOKEN.balanceOf(msg.sender) > 0) revert AlreadyBoarded();
+    /// @dev checked since if this overflows, we know msg.sender is a member and we need to revert
+    if (SHARES_TOKEN.balanceOf(msg.sender) + LOOT_TOKEN.balanceOf(msg.sender) > 0) {
+      revert AlreadyBoarded();
+    }
 
     uint256[] memory amounts = new uint256[](1);
     address[] memory members = new address[](1);
@@ -148,7 +144,6 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _members The addresses of the members to offboard.
    */
   function offboard(address[] calldata _members) external {
-    // TODO is there any problem if the array is empty?
     uint256 length = _members.length;
     uint256[] memory amounts = new uint256[](length);
     uint256 amount;
@@ -171,7 +166,7 @@ contract HatsOnboardingShaman is HatsModule {
     BAAL().burnShares(_members, amounts);
     BAAL().mintLoot(_members, amounts);
 
-    emit Offboarded(_members, amounts);
+    emit OffboardedBatch(_members, amounts);
   }
 
   /**
@@ -180,25 +175,26 @@ contract HatsOnboardingShaman is HatsModule {
    * @param _member The address of the member to offboard.
    */
   function offboard(address _member) external {
+    if (HATS().isWearerOfHat(_member, hatId())) revert StillWearsMemberHat(_member);
+
     uint256 amount = SHARES_TOKEN.balanceOf(_member);
 
     if (amount == 0) revert NoShares(_member);
-    if (HATS().isWearerOfHat(_member, hatId())) revert StillWearsMemberHat(_member);
 
-    address[] memory members = new address[](1);
-    uint256[] memory amounts = new uint256[](1);
-    members[0] = _member;
-    amounts[0] = amount;
+    address[] memory shareMembers = new address[](1);
+    uint256[] memory shareAmounts = new uint256[](1);
+    shareMembers[0] = _member;
+    shareAmounts[0] = amount;
 
-    BAAL().burnShares(members, amounts);
-    BAAL().mintLoot(members, amounts);
+    BAAL().burnShares(shareMembers, shareAmounts);
+    BAAL().mintLoot(shareMembers, shareAmounts);
 
-    emit Offboarded(members, amounts);
+    emit Offboarded(_member, amount);
   }
 
   /**
    * @notice Reboards the caller to the DAO, if they were previously offboarded but are once again wearing the member
-   * hat. Reboarded members regaing their voting power by having their loot up-converted to shares.
+   * hat. Reboarded members regain their voting power by having their loot up-converted to shares.
    */
   function reboard() external wearsMemberHat(msg.sender) {
     uint256 amount = LOOT_TOKEN.balanceOf(msg.sender);
@@ -236,7 +232,10 @@ contract HatsOnboardingShaman is HatsModule {
       shareAmount = SHARES_TOKEN.balanceOf(member);
       lootAmount = LOOT_TOKEN.balanceOf(member);
 
-      if (shareAmount + lootAmount == 0) revert NotMember(member);
+      unchecked {
+        /// @dev safe, since if this overflows, we know _member is a member, so we should not revert
+        if (shareAmount + lootAmount == 0) revert NotMember(member);
+      }
 
       shares[i] = shareAmount;
       loots[i] = lootAmount;
@@ -249,7 +248,7 @@ contract HatsOnboardingShaman is HatsModule {
     BAAL().burnShares(_members, shares);
     BAAL().burnLoot(_members, loots);
 
-    emit Kicked(_members, shares, loots);
+    emit KickedBatch(_members, shares, loots);
   }
 
   /**
@@ -261,22 +260,30 @@ contract HatsOnboardingShaman is HatsModule {
   function kick(address _member) external {
     if (HATS().isInGoodStanding(_member, hatId())) revert NotInBadStanding(_member);
 
+    uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
+    uint256 lootAmount = LOOT_TOKEN.balanceOf(_member);
     address[] memory members = new address[](1);
     uint256[] memory shares = new uint256[](1);
     uint256[] memory loots = new uint256[](1);
+
     members[0] = _member;
-    uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
-    uint256 lootAmount = LOOT_TOKEN.balanceOf(_member);
 
-    if (shareAmount + lootAmount == 0) revert NotMember(_member);
+    unchecked {
+      /// @dev safe, since if this overflows, we know _member is a member, so we should not revert
+      if (shareAmount + lootAmount == 0) revert NotMember(_member);
+    }
 
-    shares[0] = shareAmount;
-    loots[0] = lootAmount;
+    if (shareAmount > 0) {
+      shares[0] = shareAmount;
+      BAAL().burnShares(members, shares);
+    }
 
-    BAAL().burnShares(members, shares);
-    BAAL().burnLoot(members, loots);
+    if (lootAmount > 0) {
+      loots[0] = lootAmount;
+      BAAL().burnLoot(members, loots);
+    }
 
-    emit Kicked(members, shares, loots);
+    emit Kicked(_member, shareAmount, lootAmount);
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -287,9 +294,7 @@ contract HatsOnboardingShaman is HatsModule {
    * @notice Sets a new the starting shares value.
    * @param _startingShares The new starting shares value. Must be a least `1 * 10^18`.
    */
-  function setStartingShares(uint256 _startingShares) external {
-    if (!HATS().isWearerOfHat(msg.sender, OWNER_HAT())) revert NotWearingOwnerHat();
-    if (_startingShares < MIN_STARTING_SHARES) revert BadStartingShares();
+  function setStartingShares(uint256 _startingShares) external onlyOwner {
     // set the new starting shares value
     startingShares = _startingShares;
     // log the change
@@ -299,6 +304,11 @@ contract HatsOnboardingShaman is HatsModule {
   /*//////////////////////////////////////////////////////////////
                           MODIFIERS
   //////////////////////////////////////////////////////////////*/
+
+  modifier onlyOwner() {
+    if (!HATS().isWearerOfHat(msg.sender, OWNER_HAT())) revert NotOwner();
+    _;
+  }
 
   /**
    * @notice Reverts if the caller is not wearing the member hat.

@@ -167,9 +167,8 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
     predictedBaalAddress = predictBaalAddress(SALT);
 
     // predict the shaman's address via the hats module factory
-    predictedShamanAddress = factory.getHatsModuleAddress(
-      address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, tophat)
-    );
+    predictedShamanAddress =
+      factory.getHatsModuleAddress(address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, tophat));
 
     // deploy a test baal with the predicted shaman address
     baal = deployBaalWithShaman("TEST_BAAL", "TEST_BAAL", SALT, predictedShamanAddress);

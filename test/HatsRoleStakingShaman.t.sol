@@ -15,6 +15,8 @@ import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
 import { IBaalSummoner } from "baal/interfaces/IBaalSummoner.sol";
 
+// TODO determine outstanding tests
+
 contract HatsRoleStakingShamanTest is DeployImplementation, Test {
   // variables inherited from DeployImplementation script
   // HatsRoleStakingShaman public implementation;

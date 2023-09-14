@@ -1,0 +1,78 @@
+Compiling 1 files with 0.8.19
+Solc 0.8.19 finished in 4.38s
+Compiler run [32msuccessful![0m
+
+Running 1 test for test/HatsOnboardingShaman.t.sol:SetStartingShares
+[32m[PASS][0m test_owner_canSetStartingShares() (gas: 62891)
+Test result: [32mok[0m. 1 passed; 0 failed; 0 skipped; finished in 531.91ms
+
+Running 1 test for test/HatsOnboardingShaman.t.sol:Onboarding
+[32m[PASS][0m test_wearer_canOnboard() (gas: 237945)
+Test result: [32mok[0m. 1 passed; 0 failed; 0 skipped; finished in 532.62ms
+
+Running 3 tests for test/HatsOnboardingShaman.t.sol:Reboarding
+[32m[PASS][0m test_wearer_extraLoot_canReboard() (gas: 376743)
+[32m[PASS][0m test_wearer_extraShares_canReboard() (gas: 374872)
+[32m[PASS][0m test_wearer_withLoot_canReboard() (gas: 365168)
+Test result: [32mok[0m. 3 passed; 0 failed; 0 skipped; finished in 536.58ms
+
+Running 6 tests for test/HatsOnboardingShaman.t.sol:Deployment
+[32m[PASS][0m test_baal() (gas: 28889)
+[32m[PASS][0m test_lootToken() (gas: 12548)
+[32m[PASS][0m test_setAsManagerShaman() (gas: 12679)
+[32m[PASS][0m test_sharesToken() (gas: 12571)
+[32m[PASS][0m test_startingShares() (gas: 12396)
+[32m[PASS][0m test_version() (gas: 16369)
+Test result: [32mok[0m. 6 passed; 0 failed; 0 skipped; finished in 536.56ms
+
+Running 9 tests for test/HatsOnboardingShaman.t.sol:Offboarding
+[32m[PASS][0m test_batch_nonWearer_members_extraShares_canOffboard() (gas: 594278)
+[32m[PASS][0m test_batch_nonWearers_members_canOffboard() (gas: 581879)
+[32m[PASS][0m test_batch_nonWearers_members_extraLoot_canOffboard() (gas: 590188)
+[32m[PASS][0m test_single_nonWearer_member_canOffboard() (gas: 368949)
+[32m[PASS][0m test_single_nonWearer_member_extraLoot_canOffBoard() (gas: 378850)
+[32m[PASS][0m test_single_nonWearer_member_extraShares_canOffboard() (gas: 383316)
+[32m[PASS][0m test_single_nonWearer_nonMember_cannotOffBoard() (gas: 71237)
+[32m[PASS][0m test_single_wearer_member_cannotOffBoard() (gas: 241843)
+[32m[PASS][0m test_single_wearer_nonMember_cannotOffBoard() (gas: 58701)
+Test result: [32mok[0m. 9 passed; 0 failed; 0 skipped; finished in 536.22ms
+
+Running 6 tests for test/HatsOnboardingShaman.t.sol:Kicking
+[32m[PASS][0m test_batch_offboarded_inBadStanding_canBeKicked() (gas: 650484)
+[32m[PASS][0m test_batch_onBoarded_inBadStanding_canBeKicked() (gas: 601176)
+[32m[PASS][0m test_batch_sharesAndLoot_inBadStanding_canBeKicked() (gas: 786416)
+[32m[PASS][0m test_single_offboarded_inBadStanding_canBeKicked() (gas: 400546)
+[32m[PASS][0m test_single_onboarded_inBadStanding_canBeKicked() (gas: 359677)
+[32m[PASS][0m test_single_sharesAndLoot_inBadStanding_canBeKicked() (gas: 484456)
+Test result: [32mok[0m. 6 passed; 0 failed; 0 skipped; finished in 537.93ms
+| lib/hats-module/src/HatsModuleFactory.sol:HatsModuleFactory contract |                 |        |        |        |         |
+|----------------------------------------------------------------------|-----------------|--------|--------|--------|---------|
+| Deployment Cost                                                      | Deployment Size |        |        |        |         |
+| 728146                                                               | 4387            |        |        |        |         |
+| Function Name                                                        | min             | avg    | median | max    | # calls |
+| createHatsModule                                                     | 179840          | 179840 | 179840 | 179840 | 26      |
+| getHatsModuleAddress                                                 | 2207            | 2207   | 2207   | 2207   | 26      |
+
+
+| src/HatsOnboardingShaman.sol:HatsOnboardingShaman contract |                 |        |        |        |         |
+|------------------------------------------------------------|-----------------|--------|--------|--------|---------|
+| Deployment Cost                                            | Deployment Size |        |        |        |         |
+| 2155395                                                    | 11506           |        |        |        |         |
+| Function Name                                              | min             | avg    | median | max    | # calls |
+| BAAL                                                       | 305             | 305    | 305    | 305    | 2       |
+| LOOT_TOKEN                                                 | 2380            | 2380   | 2380   | 2380   | 1       |
+| SHARES_TOKEN                                               | 2401            | 2401   | 2401   | 2401   | 1       |
+| kick(address)                                              | 13160           | 19053  | 20036  | 23964  | 3       |
+| kick(address[])                                            | 39432           | 48044  | 45151  | 59551  | 3       |
+| offboard(address)                                          | 4026            | 47399  | 68023  | 68235  | 11      |
+| offboard(address[])                                        | 66099           | 97801  | 105515 | 105939 | 5       |
+| onboard                                                    | 139414          | 194405 | 213814 | 213814 | 23      |
+| reboard                                                    | 70941           | 70941  | 70941  | 70941  | 3       |
+| setStartingShares                                          | 22953           | 22953  | 22953  | 22953  | 1       |
+| startingShares                                             | 330             | 1330   | 1330   | 2330   | 2       |
+| version                                                    | 4536            | 4536   | 4536   | 4536   | 1       |
+| version_                                                   | 3228            | 3228   | 3228   | 3228   | 1       |
+
+
+
+Ran 6 test suites: 26 tests passed, 0 failed, 0 skipped (26 total tests)

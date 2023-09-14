@@ -177,15 +177,12 @@ contract HatsOnboardingShaman is HatsModule {
   function offboard(address _member) external {
     if (HATS().isWearerOfHat(_member, hatId())) revert StillWearsMemberHat(_member);
 
-    address[] memory shareMembers;
-    uint256[] memory shareAmounts;
-
     uint256 amount = SHARES_TOKEN.balanceOf(_member);
 
     if (amount == 0) revert NoShares(_member);
 
-    shareMembers = new address[](1);
-    shareAmounts = new uint256[](1);
+    address[] memory shareMembers = new address[](1);
+    uint256[] memory shareAmounts = new uint256[](1);
     shareMembers[0] = _member;
     shareAmounts[0] = amount;
 
@@ -265,13 +262,10 @@ contract HatsOnboardingShaman is HatsModule {
 
     uint256 shareAmount = SHARES_TOKEN.balanceOf(_member);
     uint256 lootAmount = LOOT_TOKEN.balanceOf(_member);
-    address[] memory members;
-    uint256[] memory shares;
-    uint256[] memory loots;
+    address[] memory members = new address[](1);
+    uint256[] memory shares = new uint256[](1);
+    uint256[] memory loots = new uint256[](1);
 
-    members = new address[](1);
-    shares = new uint256[](1);
-    loots = new uint256[](1);
     members[0] = _member;
 
     unchecked {

@@ -5,7 +5,6 @@
 This repo contains the contracts for the following Shamans:
 
 - [Hats Onboarding Shaman](#hats-onboarding-shaman)
-- [Hats Role Staking Shaman](#hats-role-staking-shaman)
 
 ## Hats Onboarding Shaman
 

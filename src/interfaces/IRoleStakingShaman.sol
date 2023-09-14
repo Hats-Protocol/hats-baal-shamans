@@ -20,9 +20,10 @@ interface IRoleStakingShaman {
    * @notice Emitted when member's stake for a given hat is slashed
    * @param member The member whose stake has been slashed
    * @param hat The role for which their stake has been slashed
-   * @param amount The amount of shares slashed
+   * @param sharesBurned The amount of shares slashed
+   * @param lootBurned The amount of loot slashed
    */
-  event Slashed(address member, uint256 hat, uint112 amount);
+  event Slashed(address member, uint256 hat, uint112 sharesBurned, uint112 lootBurned);
 
   /**
    * @notice Emitted when a member stakes on a role
@@ -54,12 +55,14 @@ interface IRoleStakingShaman {
 
   /**
    * @dev Packed into a single storage slot
-   * @custom:member amount The amount of tokens staked
+   * @param stakedAmount The amount of shares currently staked by the member for the role
+   * @param unstakingAmount The amount of shares currently in the process of unstaking by the member for the role
+   * @param canUnstakeAfter The timestamp after which the member can complete withdrawal of their untaked shares
    */
   struct Stake {
     uint112 stakedAmount;
     uint112 unstakingAmount;
-    uint32 canUnstakeAfter; // won't overflow until 2106, ie 2**32 / 60 / 60 / 24 / 365 = 136 years after epoch
+    uint32 canUnstakeAfter; // won't overflow until 2106, ie (2**32 - 1) / 60 / 60 / 24 / 365 = ~136 years after epoch
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -78,8 +81,8 @@ interface IRoleStakingShaman {
   /// @notice The address of the {BAAL} shares token
   function SHARES_TOKEN() external view returns (IBaalToken);
 
-  /// @notice The address of the implementation of the staking proxy contract
-  function STAKING_PROXY_IMPL() external pure returns (address);
+  /// @notice The address of the {BAAL} loot token
+  function LOOT_TOKEN() external view returns (IBaalToken);
 
   /*//////////////////////////////////////////////////////////////
                           STATE VARIABLES
@@ -101,6 +104,14 @@ interface IRoleStakingShaman {
     external
     view
     returns (uint112 stakedAmount, uint112 unstakingAmount, uint32 canUnstakeAfter);
+
+  /**
+   * @notice The total staked by a given member, the sum of all their current role stakes and including any stakes in
+   * cooldown
+   * @param _member The member to get the staked shares for
+   * @return totalStaked The amount of shares staked by the member, in uint112 ERC20 decimals
+   */
+  function memberStakes(address _member) external view returns (uint112 totalStaked);
 
   /// @notice The amount of time, in seconds, that must elapse from the start of an unstaking process until it is
   /// completed
@@ -209,9 +220,8 @@ interface IRoleStakingShaman {
    * such as when staking triggers second eligibility evaluation processes.
    * @param _hat The role to stake on
    * @param _amount The amount of shares to stake, in uint112 ERC20 decimals
-   * @param _delegate The address to delegate the staked share votes to
    */
-  function stakeOnRole(uint256 _hat, uint112 _amount, address _delegate) external;
+  function stakeOnRole(uint256 _hat, uint112 _amount) external;
 
   /**
    * @notice Claim a role for which the caller has already staked. Useful when the caller staked prior to meeting the
@@ -225,9 +235,8 @@ interface IRoleStakingShaman {
    * eligibility criteria.
    * @param _hat The role to stake on and claim
    * @param _amount The amount of shares to stake, in uint112 ERC20 decimals
-   * @param _delegate The address to delegate the staked share votes to
    */
-  function stakeAndClaimRole(uint256 _hat, uint112 _amount, address _delegate) external;
+  function stakeAndClaimRole(uint256 _hat, uint112 _amount) external;
 
   /**
    * @notice Begins the process of unstaking shares from a role, defined by a hatId
@@ -277,23 +286,9 @@ interface IRoleStakingShaman {
   //////////////////////////////////////////////////////////////*/
 
   /**
-   * @notice The total staked by a given member, as measured by the share balance of their staking proxy
-   * @param _member The member to get the staked shares for
-   * @return totalStaked The amount of shares staked in the member's staking proxy, in uint112 ERC20 decimals
-   */
-  function memberStakes(address _member) external view returns (uint112 totalStaked);
-
-  /**
    * @notice Derives the unstaking cooldown period as the sum of the {BAAL}'s voting and grace periods, and the
    * `cooldownBuffer`. This should give the {BAAL} enough time to place a misbehaving member in bad standing for a role
    * before they can complete their unstake.
    */
   function cooldownPeriod() external view returns (uint32);
-
-  /**
-   * @notice Gets the staking proxy address and shares staked therein for a `_member`.
-   * @dev The staking proxy address is deterministically generated from `_member`'s address and the address of this, so
-   * for gas efficiency we derive it here rather than store it.
-   */
-  function getStakedSharesAndProxy(address _member) external view returns (uint112 amount, address stakingProxy);
 }

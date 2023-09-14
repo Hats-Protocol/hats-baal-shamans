@@ -45,6 +45,8 @@ Kicks a single member out of the DAO completely, if they are in bad standing for
 
 A Baal manager shaman that allows members of the DAO to stake their shares to earn a role. The DAO (or its delegate, the `ROLE_MANAGER`), can create new roles and/or register existing existing roles, each with a minimum staking requirement. Members can then stake their shares to receive the role. The DAO (or its delegate, the `JUDGE`), can put stakers in bad standing, resulting in their staked shares being slashed. If a staker's stake drops below the minimum staking requirement for a given role — whether via slashing or some other DAO action — they immediately lose that role.
 
+Staking in this contract is "virtual" — stakers retain custody of their shares at all times, but this contract is authorized to burn the staked shares if slashing conditions are met. Stakers must always have sufficient shares to cover the total amount they have staked across all roles. If at any time they do not, they lose all roles and can only regain (a subset of) them by unstaking from enough roles to meet the coverage requirement for the remaining roles.
+
 ### Special Roles
 
 The `ROLE_MANAGER` is a special role that can create new roles, set a staking requirement for (aka register) existing roles, or change/remove staking requirements for registered roles.
@@ -82,9 +84,9 @@ Claiming a role mints the hat to the claimer.
 
 ### Unstaking from DAO Roles
 
-DAO members can unstake from a role at any time. However, to prevent gaming the system, unstaking is subject to a cooldown period.
+DAO members can unstake from a role at any time. To ensure that stakers cannot game the system by unstaking their shares before they can be slashed, unstaking is subject to a cooldown period.
 
-Like staking, members can unstake any amount they choose, as long as they have sufficient shares staked on that role. As always, dropping below the minimum staking requirement for a given role results in the member losing that role.
+Like staking, members can unstake any amount they choose, as long as they are not unstaking more shares than they have staked on the given role or more shares than they have in their account. As always, dropping below the minimum staking requirement for a given role results in the member losing that role.
 
 Here's how unstaking typically works:
 
@@ -98,7 +100,7 @@ If at any point the member becomes in bad standing for the role, they will be sl
 
 Sometimes, a staker may want to restart the unstaking process.
 
-This can be for any reason, but the most common is that since their cooldown period began, their staked shares have been reduced (such as by another shaman burning them). In this case, `completeUnstakeFromRole()` would fail, since they would no longer have sufficient shares to withdraw. Resetting would allow them to reduce the number of shares they are attempting to unstake to a number they can actually withdraw.
+This can be for any reason, but the most common is that since their cooldown period began, their total shares has decreased such that they no longer have sufficient coverage of both staked shares and the amount they wish to unstake. In this case, `completeUnstakeFromRole()` would fail. Resetting would allow them to reduce the number of shares they are attempting to unstake to a number for which they have sufficient coverage.
 
 Resetting the unstaking process has two effects: a) it changes the amount of the member's shares that are in "unstaking" state, and b) it restarts the cooldown period.
 
@@ -110,21 +112,14 @@ When the role on which a member has been staked is deregistered, there is no nee
 
 This contract also serves as a Hats eligibility module. It is designed to be set as the eligibility module for each hat that is registered to it.
 
-When set as the eligibility module for a registered hat, it will check both members' eligibility for the hat as well as their standing. `Eligibility` is determined by whether the member has staked sufficient shares on the role. `Standing` is set by the wearer of the `JUDGE_HAT`.
+When set as the eligibility module for a registered hat, it will check both members' eligibility for the hat as well as their standing. 
 
-If a member is in bad standing, they can be slashed by any account. If they attempt any phase of unstaking, they will also be slashed.
+`Eligibility` is determined by the following conditions. Both must be true for a member to be eligible for a given hat:
 
-### The Staking Proxy
+1. Has the member staked at least the minStake amount of shares for the role?
+2. Does the member have sufficient shares to cover the total amount they have staked across all roles?
 
-A member's Baal shares have voting rights that can be delegated to other accounts of the member's choosing. In order to preserve this property while their shares are staked, staked shares are held in a staking proxy contract.
-
-This contract is a simple proxy that has just a single function: `delegate()`. Each member has their own staking proxy, which is deployed when they stake shares for the first time.
-
-Whenever the member stakes additional shares — such as when calling `stakeOnRole()` or `stakeAndClaimRole()`, those shares are transferred to their staking proxy and the associated voting power is delegated to the account of their choosing (including themselves). When the member unstakes shares, the shares are transferred back to their account and the associated voting power defaults back to the member.
-
-The member can redelegate their staked shares at any time by calling `delegate()` on their staking proxy.
-
-The address of a given member's staking proxy can be found by calling `getStakedSharesAndProxy()`. This function returns both the member's staking proxy address as well as the total shares held in that proxy.
+`Standing` is set by the wearer of the `JUDGE_HAT`. If a member is in bad standing, they can be slashed by any account. If they attempt any phase of unstaking, they will also be slashed.
 
 ## Development
 

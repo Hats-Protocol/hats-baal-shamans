@@ -54,7 +54,8 @@ contract QuartermasterShaman is HatsModule {
    * 20      | HATS                | address | 20     | HatsModule       |
    * 40      | hatId               | uint256 | 32     | HatsModule       |
    * 72      | BAAL                | address | 20     | this             |
-   * 92      | OWNER_HAT           | uint256 | 32     | this             |
+   * 92      | CAPTAIN_HAT         | uint256 | 32     | this             |
+   * 124     | STARTING_SHARES     | uint256 | 32     | this             |
    * --------------------------------------------------------------------+
    */
 
@@ -63,8 +64,13 @@ contract QuartermasterShaman is HatsModule {
   }
 
   // OWNER_HAT is renamed to CAPTAIN_HAT for this use
+  // TODO I think this is wrong, this is brought from parent, captain should be initarg
   function CAPTAIN_HAT() public pure returns (uint256) {
     return _getArgUint256(92);
+  }
+
+  function STARTING_SHARES() public pure returns (uint256) {
+    return _getArgUint256(124);
   }
 
   /**
@@ -74,7 +80,6 @@ contract QuartermasterShaman is HatsModule {
    * cannot be mutated after initialization.
    */
   IBaalToken public SHARES_TOKEN;
-  uint256 public STARTING_SHARES;
 
   /*//////////////////////////////////////////////////////////////
                           MUTABLE STATE
@@ -94,13 +99,9 @@ contract QuartermasterShaman is HatsModule {
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc HatsModule
-  function _setUp(bytes calldata _initData) internal override {
+  function _setUp(bytes calldata) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
 
-    uint256 startingShares_ = abi.decode(_initData, (uint256));
-
-    // set the starting shares
-    STARTING_SHARES = startingShares_;
     // no need to emit an event, as this value is emitted in the HatsModuleFactory_ModuleDeployed event
   }
 
@@ -118,7 +119,7 @@ contract QuartermasterShaman is HatsModule {
       member = _members[i];
       if (onboardingDelay[member] == 0 && SHARES_TOKEN.balanceOf(member) == 0) {
         onboardingDelay[member] = delay;
-        amounts[i] = STARTING_SHARES; // else 0
+        amounts[i] = STARTING_SHARES(); // else 0
       }
 
       
@@ -168,7 +169,7 @@ contract QuartermasterShaman is HatsModule {
       address member = _members[i];
       if (onboardingDelay[member] != 0 && onboardingDelay[member] <= block.timestamp) {
         delete onboardingDelay[member];
-        amounts[i] = STARTING_SHARES;
+        amounts[i] = STARTING_SHARES();
       }
 
       unchecked {

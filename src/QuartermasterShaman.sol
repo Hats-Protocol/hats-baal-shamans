@@ -122,7 +122,6 @@ contract QuartermasterShaman is HatsModule {
         amounts[i] = STARTING_SHARES(); // else 0
       }
 
-      
       unchecked {
         ++i;
       }

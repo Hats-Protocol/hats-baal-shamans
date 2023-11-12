@@ -83,9 +83,7 @@ contract WithInstanceTest is QuartermasterShamanTest {
     // encoded the initData as unpacked bytes -- for QuartermasterShaman, we just need any non-empty bytes
     initData = abi.encode(0);
     // deploy the instance
-    return QuartermasterShaman(
-      deployModuleInstance(factory, address(implementation), 0, otherImmutableArgs, initData)
-    );
+    return QuartermasterShaman(deployModuleInstance(factory, address(implementation), 0, otherImmutableArgs, initData));
   }
 
   function deployBaalWithShaman(string memory _name, string memory _symbol, bytes32 _saltNonce, address _shaman)
@@ -102,7 +100,7 @@ contract WithInstanceTest is QuartermasterShamanTest {
     permissions[0] = 2; // manager only
     bytes[] memory initializationActions = new bytes[](2);
     initializationActions[0] = abi.encodeCall(IBaal.setShamans, (shamans, permissions));
-    initializationActions[1] = abi.encodeCall(IBaal.setGovernanceConfig,(governanceConfig));
+    initializationActions[1] = abi.encodeCall(IBaal.setGovernanceConfig, (governanceConfig));
     // deploy the baal
     return IBaal(
       summoner.summonBaalFromReferrer(initializationParams, initializationActions, uint256(_saltNonce), "referrer")
@@ -130,9 +128,6 @@ contract WithInstanceTest is QuartermasterShamanTest {
   function grantShares(address _member, uint256 _amount) public {
     vm.prank(address(baal));
     sharesToken.mint(_member, _amount);
-  }
-
-  function setVotingPeriod(uint32 _period) public {
   }
 
   function makeArray(address _addr) public pure returns (address[] memory) {
@@ -166,8 +161,9 @@ contract WithInstanceTest is QuartermasterShamanTest {
     predictedBaalAddress = predictBaalAddress(SALT);
 
     // predict the shaman's address via the hats module factory
-    predictedShamanAddress =
-      factory.getHatsModuleAddress(address(implementation), 0, abi.encodePacked(predictedBaalAddress, captainHat, startingShares));
+    predictedShamanAddress = factory.getHatsModuleAddress(
+      address(implementation), 0, abi.encodePacked(predictedBaalAddress, captainHat, startingShares)
+    );
 
     // deploy a test baal with the predicted shaman address
     baal = deployBaalWithShaman("TEST_BAAL", "TEST_BAAL", SALT, predictedShamanAddress);
@@ -205,7 +201,6 @@ contract Deployment is WithInstanceTest {
   function test_startingShares() public {
     assertEq(shaman.STARTING_SHARES(), startingShares);
   }
-
 }
 
 contract Onboarding is WithInstanceTest {
@@ -366,7 +361,6 @@ contract Offboarding is WithQuarteredTest {
 }
 
 contract Unquartering is WithQuarteredTest {
-
   function setUp() public override {
     super.setUp();
 

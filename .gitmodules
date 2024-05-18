@@ -1,9 +1,9 @@
-[submodule "lib/forge-std"]
-	path = lib/forge-std
-	url = https://github.com/foundry-rs/forge-std
 [submodule "lib/baal"]
 	path = lib/baal
 	url = https://github.com/hausDAO/baal
+[submodule "lib/forge-std"]
+	path = lib/forge-std
+	url = https://github.com/foundry-rs/forge-std
 [submodule "lib/hats-module"]
 	path = lib/hats-module
 	url = https://github.com/hats-protocol/hats-module

@@ -7,3 +7,9 @@
 [submodule "lib/hats-module"]
 	path = lib/hats-module
 	url = https://github.com/hats-protocol/hats-module
+[submodule "lib/multi-claims-hatter"]
+	path = lib/multi-claims-hatter
+	url = https://github.com/hats-protocol/multi-claims-hatter
+[submodule "lib/solady"]
+	path = lib/solady
+	url = https://github.com/vectorized/solady

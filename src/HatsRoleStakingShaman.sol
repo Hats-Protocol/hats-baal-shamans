@@ -7,15 +7,13 @@ import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
 import { IHatsEligibility } from "hats-protocol/Interfaces/IHatsEligibility.sol";
 import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
-import { LibClone } from "solady/utils/LibClone.sol";
 import { LibHatId } from "src/LibHatId.sol";
-import { StakingProxy } from "src/StakingProxy.sol";
 
 /**
  * @title Hats Role Staking Shaman
- * @notice This contract manages staking and unstaking of DAO members' shares for Hats Protocol-powered roles.
- * @dev This contract assumes that the Baal (along with its other approved shamans) is trusted and will not wontonly
- * burn members' shares, whether staked or not staked.
+ * @notice This contract manages staking and unstaking of DAO members' shares for Hats Protocol-powered roles. Staking
+ * is "virtual" in that members retain custoday of their stake, but this contract is authorized to burn it if slashing
+ * conditions are met.
  * @author Haberdasher Labs
  * @author @spengrah
  * @dev This contract inherits from the HatsModule contract, and is meant to be deployed as a clone from the
@@ -36,6 +34,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   error RoleStillRegistered();
   /// @notice Thrown when attempting to claim a role for which the claimer is not explicitly eligible
   error NotEligible();
+  /// @notice Thrown when attempting to stake more shares than the caller has outstanding
+  error InsufficientShares();
   /// @notice Thrown when attempting to unstake from a role before the cooldown period has ended
   error CooldownNotEnded();
   /// @notice Thrown when attempting to claim or unstake from a role without sufficient stake
@@ -73,9 +73,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
    * 20     | HATS                 | address | 20     | HatsModule       |
    * 40     | hatId                | uint256 | 32     | HatsModule       |
    * 72     | BAAL                 | address | 20     | this             |
-   * 92     | STAKING_PROXY_IMPL   | address | 20     | this             |
-   * 112    | ROLE_MANAGER_HAT     | uint256 | 32     | this             |
-   * 144    | JUDGE_HAT            | uint256 | 32     | this             |
+   * 92     | ROLE_MANAGER_HAT     | uint256 | 32     | this             |
+   * 124    | JUDGE_HAT            | uint256 | 32     | this             |
    * --------------------------------------------------------------------+
    */
 
@@ -85,22 +84,20 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /// @inheritdoc IRoleStakingShaman
-  function STAKING_PROXY_IMPL() public pure returns (address) {
-    return _getArgAddress(92);
-  }
-
-  /// @inheritdoc IRoleStakingShaman
   function ROLE_MANAGER_HAT() public pure returns (uint256) {
-    return _getArgUint256(112);
+    return _getArgUint256(92);
   }
 
   /// @inheritdoc IRoleStakingShaman
   function JUDGE_HAT() public pure returns (uint256) {
-    return _getArgUint256(144);
+    return _getArgUint256(124);
   }
 
   /// @inheritdoc IRoleStakingShaman
   IBaalToken public SHARES_TOKEN;
+
+  /// @inheritdoc IRoleStakingShaman
+  IBaalToken public LOOT_TOKEN;
 
   /*//////////////////////////////////////////////////////////////
                           MUTABLE STATE
@@ -113,10 +110,13 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   mapping(uint256 hat => mapping(address member => Stake stake)) public roleStakes;
 
   /// @inheritdoc IRoleStakingShaman
+  mapping(address member => uint112 stakedAmount) public memberStakes;
+
+  /// @inheritdoc IRoleStakingShaman
   uint32 public cooldownBuffer;
 
   /// @dev Internal tracker for member standing by hat, exposed publicly via {getWearerStatus}.
-  /// Default is good standing (true).
+  /// Default is good standing (false).
   mapping(uint256 hat => mapping(address member => bool badStanding)) internal badStandings;
 
   /*//////////////////////////////////////////////////////////////
@@ -132,6 +132,7 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   /// @inheritdoc HatsModule
   function _setUp(bytes calldata _initData) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
+    LOOT_TOKEN = IBaalToken(BAAL().lootToken());
 
     cooldownBuffer = abi.decode(_initData, (uint32));
   }
@@ -264,10 +265,10 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     override
     returns (bool eligible, bool standing)
   {
-    // standing is the inverse of badStandings
-    standing = !badStandings[_hatId][_member];
-    // eligible if member stake for the hat being >= minStake, unless standing is false
-    eligible = standing ? _hasSufficientStake(_hatId, _member) : false;
+    // always ineligible if in bad standing
+    if (badStandings[_hatId][_member]) return (false, false);
+    // eligible = having sufficient stake
+    else return (_hasSufficientStake(_member, _hatId), true);
   }
 
   /// @inheritdoc IRoleStakingShaman
@@ -277,14 +278,21 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /**
-   * @dev Checks if _member has sufficient stake for _hat
-   * @param _hat The hat to check stake for
+   * @dev Checks if _member has sufficient stake for _hat.
    * @param _member The member to check stake for
-   * return Whether _member has sufficient stake for _hat
+   * @param _hat The role to check stake for
+   * return Whether _member has sufficient stake
    */
-  function _hasSufficientStake(uint256 _hat, address _member) internal view returns (bool) {
-    // eligible if member stake for the hat being >= minStake
-    return roleStakes[_hat][_member].stakedAmount >= minStakes[_hat];
+  function _hasSufficientStake(address _member, uint256 _hat) internal view returns (bool) {
+    uint112 totalStake = memberStakes[_member];
+    uint112 shareBalance = uint112(SHARES_TOKEN.balanceOf(_member));
+
+    // stake is sufficient if role stake >= minStake and shareBalance >= totalStake
+    return (shareBalance >= totalStake && roleStakes[_hat][_member].stakedAmount >= minStakes[_hat]);
+
+    // TODO allow loot to be used for staking
+    // uint112 lootBalance = uint112(LOOT_TOKEN.balanceOf(_member));
+    // if (shareBalance + lootBalance >= totalStake) return true;
   }
 
   /**
@@ -337,8 +345,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc IRoleStakingShaman
-  function stakeOnRole(uint256 _hat, uint112 _amount, address _delegate) external validRole(_hat) {
-    _stakeOnRole(msg.sender, _hat, _amount, _delegate);
+  function stakeOnRole(uint256 _hat, uint112 _amount) external validRole(_hat) {
+    _stakeOnRole(msg.sender, _hat, _amount);
   }
 
   /// @inheritdoc IRoleStakingShaman
@@ -347,8 +355,8 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /// @inheritdoc IRoleStakingShaman
-  function stakeAndClaimRole(uint256 _hat, uint112 _amount, address _delegate) external validRole(_hat) {
-    _stakeOnRole(msg.sender, _hat, _amount, _delegate);
+  function stakeAndClaimRole(uint256 _hat, uint112 _amount) external validRole(_hat) {
+    _stakeOnRole(msg.sender, _hat, _amount);
     _claimRole(msg.sender, _hat);
   }
 
@@ -360,19 +368,16 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
       return;
     }
 
-    /**
-     * @dev caller must have sufficient stake for _hat, both in internal roleStake accounting as well as their actual
-     * shares in their Staking Proxy. The latter value may be too low if the shares were burned directly by the Baal or
-     * another shaman.
-     */
+    // caller must have at least _amount shares staked for _hat & more total shares than their total stake
     Stake storage stake = roleStakes[_hat][msg.sender];
-    if (stake.stakedAmount < _amount || SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(msg.sender)) < _amount) {
-      revert InsufficientStake();
-    }
+    uint112 sharesBalance = uint112(SHARES_TOKEN.balanceOf(msg.sender));
+    if (stake.stakedAmount < _amount || sharesBalance < _amount) revert InsufficientStake();
+
     // caller must not be in cooldown period for _hat
     if (stake.unstakingAmount > 0) revert CooldownNotEnded();
 
     // otherwise, proceed with the unstake, moving their stake for _hat to the cooldown queue
+    // we leave their total stake unchanged, since they need to cover their unstakingAmount during cooldown
     stake.unstakingAmount = _amount;
     unchecked {
       /// @dev Safe until 2106
@@ -393,16 +398,12 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
       return;
     }
 
-    /**
-     * @dev caller must have at least _amount stake for _hat, both in internal roleStake accounting (sum of staked and
-     * unstaking) as well as their actual shares in their Staking Proxy.
-     */
+    // caller must have at least _amount shares staked (or unstaking) for _hat & more shares than their total stake
     Stake storage stake = roleStakes[_hat][msg.sender];
     uint112 oldUnstakingAmount = stake.unstakingAmount;
-    uint256 allStaked = stake.stakedAmount + oldUnstakingAmount;
-    if (allStaked < _amount || SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(msg.sender)) < _amount) {
-      revert InsufficientStake();
-    }
+    uint112 allStaked = stake.stakedAmount + oldUnstakingAmount;
+    uint112 sharesBalance = uint112(SHARES_TOKEN.balanceOf(msg.sender));
+    if (allStaked < _amount || sharesBalance < _amount) revert InsufficientStake();
 
     unchecked {
       if (oldUnstakingAmount > _amount) {
@@ -436,20 +437,21 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     Stake storage stake = roleStakes[_hat][_member];
     // cooldown period must be over
     if (stake.canUnstakeAfter > block.timestamp) revert CooldownNotEnded();
-    // caller must have sufficient total stake and sufficient actual shares in their staking proxy
+
+    // caller must have sufficient total stake and shares to cover the unstaking amount
     uint112 amount = stake.unstakingAmount;
-    address proxy = _calculateStakingProxyAddress(_member);
+    if (SHARES_TOKEN.balanceOf(_member) < amount) revert InsufficientShares();
+    if (memberStakes[_member] < amount) revert InsufficientStake();
 
-    if (SHARES_TOKEN.balanceOf(proxy) < amount) revert InsufficientStake();
+    // reduce their total stake amount
+    unchecked {
+      /// @dev Should not underflow given the sufficiency check above
+      memberStakes[_member] -= amount;
+    }
 
-    // remove their stake from the cooldown queue
+    // clear their stake from the cooldown queue
     stake.unstakingAmount = 0;
     stake.canUnstakeAfter = 0;
-
-    // transfer their amount of shares from the _member's staking proxy to _member
-    /// @dev will revert if insufficient balance in proxy, which could happen if they got burned directly by another
-    /// shaman or the Baal itself
-    _transferShares(proxy, _member, amount);
 
     // log the unstake
     emit UnstakeCompleted(_member, _hat, amount);
@@ -459,32 +461,27 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   function unstakeFromDeregisteredRole(uint256 _hat) external {
     if (minStakes[_hat] > 0) revert RoleStillRegistered();
 
-    // if caller is in bad standing, slash them and return
-    if (!HATS().isInGoodStanding(msg.sender, _hat)) {
-      _slashStake(msg.sender, _hat);
-      return;
-    }
-
-    // get the remaining staked balance from their proxy
-    (uint256 proxyBalance, address proxy) = getStakedSharesAndProxy(msg.sender);
     // get their current stake for _hat
     Stake storage stake = roleStakes[_hat][msg.sender];
     uint112 allStaked = stake.stakedAmount + stake.unstakingAmount;
 
-    // Amount to unstake is the lesser of their allStaked and their proxy balance. This ensures that they can't use this
-    // to withdraw their shares staked to other roles
-    uint112 amount = allStaked < proxyBalance ? allStaked : uint112(proxyBalance);
+    // caller must have sufficient total stake and shares to cover the unstaking amount
+    uint112 amount = stake.unstakingAmount;
+    if (SHARES_TOKEN.balanceOf(msg.sender) < amount) revert InsufficientShares();
+
+    // reduce their total stake amount
+    unchecked {
+      /// @dev Should not underflow given the sufficiency check above
+      memberStakes[msg.sender] -= allStaked;
+    }
 
     // clear their staked amount, and also clear any cooldown
     stake.stakedAmount = 0;
     stake.unstakingAmount = 0;
     stake.canUnstakeAfter = 0;
 
-    // transfer their amount to unstake from the msg.sender's staking proxy to msg.sender
-    if (amount > 0) _transferShares(proxy, msg.sender, amount);
-
     // log the unstake
-    emit UnstakeCompleted(msg.sender, _hat, amount);
+    emit UnstakeCompleted(msg.sender, _hat, allStaked);
   }
 
   /// @inheritdoc IRoleStakingShaman
@@ -502,26 +499,25 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
   /**
    * @dev Internal function for staking on a role. Called by {stakeOnRole} and {stakeAndClaimRole}. Staked shares are
-   * held in a staking proxy contract unique to `_member`.
+   * held in a staking proxy contract unique to `_member`. _member must have enough outstanding shares to cover the new
+   * _amount.
    * @param _member The member staking on the role
    * @param _hat The role to stake on
    * @param _amount The amount of shares to stake, in uint112 ERC20 decimals
-   * @param _delegate The address to delegate the staked share votes to
    */
-  function _stakeOnRole(address _member, uint256 _hat, uint112 _amount, address _delegate) internal {
+  function _stakeOnRole(address _member, uint256 _hat, uint112 _amount) internal {
+    // get _member's share balance
+    uint112 shareBalance = uint112(SHARES_TOKEN.balanceOf(_member));
+    // get _member's total stake
+    uint112 totalStake = memberStakes[_member];
+
+    // _member must have enough shares to cover the new stake
+    if (shareBalance - totalStake < _amount) revert InsufficientShares();
+
     // add _amount to _member's stake for _hat
     roleStakes[_hat][_member].stakedAmount += _amount;
-
-    // calculate _member's staking proxy address
-    address proxy = _calculateStakingProxyAddress(_member);
-
-    // transfer _amount of shares from _member to their staking proxy
-    _transferShares(_member, proxy, _amount);
-
-    // delegate shares from proxy back to the _delegate of _member's choosing, deploy a staking proxy for _member if
-    // they don't yet have one
-    if (proxy.code.length == 0) _deployStakingProxy(_member);
-    StakingProxy(proxy).delegate(_delegate);
+    // add _amount to _member's total stakes
+    memberStakes[_member] += _amount;
 
     // log the stake
     emit Staked(_member, _hat, _amount);
@@ -542,9 +538,9 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
 
     if (eligibility == address(this)) {
       // check this contract for eligibility
-      if (!_hasSufficientStake(_hat, _claimer)) revert InsufficientStake();
+      if (!_hasSufficientStake(_claimer, _hat)) revert InsufficientStake();
     } else {
-      // check the _hat's eligibility module for explicity eligibility
+      // check the _hat's eligibility module for explicit eligibility
       if (!_isExplicitlyEligible(_hat, eligibility, _claimer)) revert NotEligible();
     }
 
@@ -562,38 +558,63 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   function _slashStake(address _member, uint256 _hat) internal {
     // set _member's stake for _hat to 0
     Stake storage stake = roleStakes[_hat][_member];
-    uint112 amount;
+    uint112 shareSlashAmount;
 
     if (stake.unstakingAmount > 0) {
       // _member is in cooldown, so we need to account for their unstakingAmount
       unchecked {
         // Should not overflow since these are two components of a staked amount total, which did not previously
         // overflow
-        amount = stake.stakedAmount + stake.unstakingAmount;
+        shareSlashAmount = stake.stakedAmount + stake.unstakingAmount;
       }
       // and clear their cooldown
       stake.unstakingAmount = 0;
       stake.canUnstakeAfter = 0;
     } else {
       // _member is not in cooldown, so we just care about their stakedAmount
-      amount = stake.stakedAmount;
+      shareSlashAmount = stake.stakedAmount;
     }
     // in either case, we clear their stakedAmount
     stake.stakedAmount = 0;
 
-    // make sure the actual amount to burn is not greater than the member's proxy balance
-    // (which could happen if the baal or another shaman burned some directly)
-    uint112 proxyBalance = memberStakes(_member);
-    if (amount > proxyBalance) amount = proxyBalance;
+    // get their share balance
+    uint112 shareBalance = uint112(SHARES_TOKEN.balanceOf(_member));
+    uint112 lootSlashAmount;
+
+    if (shareBalance < shareSlashAmount) {
+      // if their share balance is less than what needs to be burned, we need to burn their loot to make up the
+      // difference
+      uint112 lootBalance = uint112(LOOT_TOKEN.balanceOf(_member));
+      uint112 diff = shareSlashAmount - shareBalance;
+      if (lootBalance < diff) {
+        // if their loot doesn't cover the difference, we burn all of it
+        lootSlashAmount = lootBalance;
+      } else {
+        // otherwise, we burn only the difference
+        lootSlashAmount = diff;
+      }
+
+      //  we can only burn the shares they have
+      shareSlashAmount = shareBalance;
+
+      // burn the loot
+      _burnLoot(_member, lootSlashAmount);
+    }
+
+    // reduce their total stake by the total amount we're slashing
+    unchecked {
+      /// @dev Should not underflow given the checks above
+      memberStakes[_member] -= shareSlashAmount + lootSlashAmount;
+    }
 
     // burn the shares
-    _burnShares(_member, amount);
+    _burnShares(_member, shareSlashAmount);
 
     // burn their hat (it's already been dynamically revoked by the eligibility module, but now we fully burn it)
     HATS().checkHatWearerStatus(_hat, _member);
 
     // log the slash
-    emit Slashed(_member, _hat, amount);
+    emit Slashed(_member, _hat, shareSlashAmount, lootSlashAmount);
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -608,91 +629,30 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     }
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function getStakedSharesAndProxy(address _member) public view returns (uint112 amount, address stakingProxy) {
-    stakingProxy = _calculateStakingProxyAddress(_member);
-    amount = uint112(SHARES_TOKEN.balanceOf(stakingProxy));
-  }
-
-  /// @inheritdoc IRoleStakingShaman
-  function memberStakes(address _member) public view returns (uint112 totalStaked) {
-    return uint112(SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(_member)));
-  }
-
   /*//////////////////////////////////////////////////////////////
                         INTERNAL SHAMAN LOGIC
   //////////////////////////////////////////////////////////////*/
 
   /**
-   * @dev Internal function to transfer shares from one address to another. This contract must be approved as a shaman
-   * on the Baal for this action to succeed.
-   * @param _from The address to transfer from
-   * @param _to The address to transfer to
-   * @param _amount The amount of shares to transfer, in uint112 ERC20 decimals
-   */
-  function _transferShares(address _from, address _to, uint112 _amount) internal {
-    uint256[] memory amounts = new uint256[](1);
-    address[] memory members = new address[](1);
-    amounts[0] = uint256(_amount);
-
-    // burn from _from
-    members[0] = _from;
-    BAAL().burnShares(members, amounts);
-
-    // mint to _to
-    members[0] = _to;
-    BAAL().mintShares(members, amounts);
-  }
-
-  /**
    * @dev Internal function to burn shares for a member. This contract must be approved as a shaman on the Baal for this
    * action to succeed.
-   * @param _from The address to burn from. Shares are burned from this address's staking proxy.
+   * @param _from The address to burn from
    * @param _amount The amount of shares to burn, in uint112 ERC20 decimals
    */
   function _burnShares(address _from, uint112 _amount) internal {
     uint256[] memory amounts = new uint256[](1);
     address[] memory members = new address[](1);
     amounts[0] = uint256(_amount);
-    members[0] = _calculateStakingProxyAddress(_from);
+    members[0] = _from;
     BAAL().burnShares(members, amounts);
   }
 
-  /*//////////////////////////////////////////////////////////////
-                  INTERNAL SHARE STAKING PROXY LOGIC
-  //////////////////////////////////////////////////////////////*/
-
-  /**
-   * @dev Predict the address of a member's staking proxy, which is deterministically generated from their address, the
-   * address of the shares token, and the address of this contract
-   */
-  function _calculateStakingProxyAddress(address _member) internal view returns (address) {
-    bytes memory args = _encodeArgs(_member);
-    return LibClone.predictDeterministicAddress(STAKING_PROXY_IMPL(), args, _generateSalt(args), address(this));
-  }
-
-  /**
-   * @dev Deploy a deterministic proxy for `_member`, with immutable args of `address(this)`, `address(SHARES_TOKEN)`,
-   * and `_member`
-   */
-  function _deployStakingProxy(address _member) internal returns (address) {
-    bytes memory args = _encodeArgs(_member);
-
-    return LibClone.cloneDeterministic(STAKING_PROXY_IMPL(), args, _generateSalt(args));
-  }
-
-  /**
-   * @dev Encode packed the args for the staking proxy: `address(this)`, `address(SHARES_TOKEN)`, and `_member`
-   */
-  function _encodeArgs(address _member) internal view returns (bytes memory) {
-    return abi.encodePacked(address(this), address(SHARES_TOKEN), _member);
-  }
-
-  /**
-   * @dev Generate a salt for the share staking proxy, as the keccak256 hash of its args
-   */
-  function _generateSalt(bytes memory _args) internal pure returns (bytes32) {
-    return keccak256(_args);
+  function _burnLoot(address _from, uint112 _amount) internal {
+    uint256[] memory amounts = new uint256[](1);
+    address[] memory members = new address[](1);
+    amounts[0] = uint256(_amount);
+    members[0] = _from;
+    BAAL().burnLoot(members, amounts);
   }
 
   /*//////////////////////////////////////////////////////////////

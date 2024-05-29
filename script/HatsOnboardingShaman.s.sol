@@ -9,7 +9,7 @@ import {
 
 contract DeployImplementation is Script {
   HatsOnboardingShaman public implementation;
-  bytes32 public SALT = keccak256("lets add some salt to this meal");
+  bytes32 internal constant SALT = bytes32(abi.encode(0x4a75)); // ~ H(4) A(a) T(7) S(5)
 
   // default values
   string public version = "0.1.0"; // increment with each deploy
@@ -52,19 +52,26 @@ contract DeployInstance is Script {
   /// @dev override this to abi.encode (packed) other relevant immutable args (initialized and set within the function
   /// body). Alternatively, you can pass encoded data in
   function encodeImmutableArgs() internal virtual returns (bytes memory) {
-    // abi.encodePacked()...
+    address baal;
+    /// @dev enter the address of the Baal contract
+    uint256 ownerHat;
+    /// @dev enter the id of the owner hat
+    return abi.encodePacked(baal, ownerHat);
   }
 
   /// @dev override this to abi.encode (unpacked) the init data (initialized and set within the function body)
   function encodeInitData() internal virtual returns (bytes memory) {
-    // abi.encode()...
+    uint256 startingShares = 100 ether;
+    /// @dev change to the desired amount of starting shares (in wei)
+    return abi.encode(startingShares);
   }
 
   /// @dev override this to set the default values within the function body
   function setDefaultValues() internal virtual {
-    // factory = HatsModuleFactory(0x);
-    // implementation = 0x;
-    // hatId = ;
+    factory = HatsModuleFactory(0xfE661c01891172046feE16D3a57c3Cf456729efA);
+    implementation = 0x21fD6DD770140ea847BE368237a3895131456A5b;
+    hatId;
+    /// @dev enter the id of the member hat
   }
 
   /// @dev Call from tests or other scripts to override default values

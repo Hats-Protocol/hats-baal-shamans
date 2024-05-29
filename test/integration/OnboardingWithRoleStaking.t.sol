@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { HatsOnboardingShaman } from "../../src/HatsOnboardingShaman.sol";
-import { HatsRoleStakingShaman } from "../../src/HatsRoleStakingShaman.sol";
+import { HatsStakingShaman } from "../../src/HatsStakingShaman.sol";
 import {
   HatsModuleFactory, deployModuleFactory, deployModuleInstance
 } from "lib/hats-module/src/utils/DeployFunctions.sol";
@@ -12,7 +12,7 @@ contract IntegrationTest is Test {
 // TODO
 // set up hats
 // deploy hats module factory
-// deploy HatsRoleStakingShaman instance
+// deploy HatsStakingShaman instance
 // deploy HatsOnboardingShaman instance
 }
 

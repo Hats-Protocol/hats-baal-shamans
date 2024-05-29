@@ -26,7 +26,7 @@ contract DeployImplementation is Script {
     address deployer = vm.rememberKey(privKey);
     vm.startBroadcast(deployer);
 
-    implementation = new HatsOnboardingShaman{ salt: SALT}(version);
+    implementation = new HatsOnboardingShaman{ salt: SALT }(version);
 
     vm.stopBroadcast();
 
@@ -47,6 +47,7 @@ contract DeployInstance is Script {
   bytes public initData;
   bool internal verbose = true;
   bool internal defaults = true;
+  uint256 public saltNonce;
 
   /// @dev override this to abi.encode (packed) other relevant immutable args (initialized and set within the function
   /// body). Alternatively, you can pass encoded data in
@@ -73,6 +74,7 @@ contract DeployInstance is Script {
     uint256 _hatId,
     bytes memory _otherImmutableArgs,
     bytes memory _initData,
+    uint256 _saltNonce,
     bool _verbose
   ) public {
     factory = _factory;
@@ -80,6 +82,7 @@ contract DeployInstance is Script {
     hatId = _hatId;
     otherImmutableArgs = _otherImmutableArgs;
     initData = _initData;
+    saltNonce = _saltNonce;
     verbose = _verbose;
 
     defaults = false;
@@ -103,7 +106,7 @@ contract DeployInstance is Script {
     }
 
     // deploy the instance
-    instance = deployModuleInstance(factory, implementation, hatId, otherImmutableArgs, initData);
+    instance = deployModuleInstance(factory, implementation, hatId, otherImmutableArgs, initData, saltNonce);
 
     vm.stopBroadcast();
 

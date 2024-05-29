@@ -71,7 +71,6 @@ contract HatsOnboardingShaman is HatsModule {
    * 92      | OWNER_HAT           | uint256 | 32     | this             |
    * --------------------------------------------------------------------+
    */
-
   function BAAL() public pure returns (IBaal) {
     return IBaal(_getArgAddress(72));
   }

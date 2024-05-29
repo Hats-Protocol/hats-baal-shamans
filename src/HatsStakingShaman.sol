@@ -14,7 +14,8 @@ import { StakingProxy } from "./StakingProxy.sol";
 
 /**
  * @title Hats Staking Shaman
- * @notice This contract manages staking and unstaking of DAO members' shares for Hats Protocol-powered roles.
+ * @notice This contract manages staking and unstaking of DAO members' shares to become eligible for a Hats
+ * Protocol-powered role.
  * @dev This contract assumes that the Baal (along with its other approved shamans) is trusted and will not wontonly
  * burn members' shares, whether staked or not staked.
  * @author Haberdasher Labs
@@ -27,8 +28,6 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
                             CUSTOM ERRORS
   //////////////////////////////////////////////////////////////*/
 
-  /// @notice Thrown when attempting to register, adjust, or deregister a role that is not mutable
-  error InvalidMinStake();
   /// @notice Thrown when attempting to unstake from a registered role without a cooldown period
   error RoleStillRegistered();
   /// @notice Thrown when attempting to unstake from a role before the cooldown period has ended
@@ -90,11 +89,13 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
                           MUTABLE STATE
   //////////////////////////////////////////////////////////////*/
 
+  /// @inheritdoc IHatsStakingShaman
   uint112 public minStake;
 
   /// @inheritdoc IHatsStakingShaman
   uint32 public cooldownBuffer;
 
+  /// @inheritdoc IHatsStakingShaman
   uint256 public judge;
 
   /// @inheritdoc IHatsStakingShaman
@@ -125,7 +126,7 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   }
 
   /*//////////////////////////////////////////////////////////////
-                            PUBLIC ADMIN LOGIC
+                        PUBLIC ADMIN LOGIC
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc IHatsStakingShaman
@@ -158,7 +159,7 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   }
 
   /*//////////////////////////////////////////////////////////////
-                        ELIGIBILITY LOGIC
+                      PUBLIC ELIGIBILITY LOGIC
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc IHatsEligibility
@@ -179,6 +180,10 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
     // standing is the inverse of badStandings
     badStandings[_member] = !_standing;
   }
+
+  /*//////////////////////////////////////////////////////////////
+                      INTERNAL ELIGIBILITY LOGIC
+  //////////////////////////////////////////////////////////////*/
 
   /**
    * @dev Checks if _member has sufficient stake for _hat
@@ -369,7 +374,7 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   //////////////////////////////////////////////////////////////*/
 
   /**
-   * @dev Internal function for staking on a role. Called by {stakeOnRole} and {stakeAndClaimRole}. Staked shares are
+   * @dev Internal function for staking. Called by {stake} and {stakeAndClaim}. Staked shares are
    * held in a staking proxy contract unique to `_member`.
    * @param _member The member staking on the role
    * @param _amount The amount of shares to stake, in uint112 ERC20 decimals
@@ -413,7 +418,7 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   }
 
   /**
-   * @dev Internal function to slash a member's stake for a role, if they are in bad standing.
+   * @dev Internal function to slash a member's stake, if they are in bad standing.
    * @param _member The member to slash
    */
   function _slashStake(address _member) internal {
@@ -478,8 +483,8 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   //////////////////////////////////////////////////////////////*/
 
   /**
-   * @dev Internal function to transfer shares from one address to another. This contract must be approved as a shaman
-   * on the Baal for this action to succeed.
+   * @dev Internal function to transfer shares from one address to another. This contract must be approved as a manager
+   * shaman on the Baal for this action to succeed.
    * @param _from The address to transfer from
    * @param _to The address to transfer to
    * @param _amount The amount of shares to transfer, in uint112 ERC20 decimals
@@ -499,8 +504,8 @@ contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   }
 
   /**
-   * @dev Internal function to burn shares for a member. This contract must be approved as a shaman on the Baal for this
-   * action to succeed.
+   * @dev Internal function to burn shares for a member. This contract must be approved as a manager shaman on the Baal
+   * for this action to succeed.
    * @param _from The address to burn from. Shares are burned from this address's staking proxy.
    * @param _amount The amount of shares to burn, in uint112 ERC20 decimals
    */

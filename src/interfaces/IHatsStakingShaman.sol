@@ -105,6 +105,9 @@ interface IHatsStakingShaman {
   /// completed
   function cooldownBuffer() external view returns (uint32);
 
+  /// @notice The hat id of the judge, who can set the standing of a member
+  function judge() external view returns (uint256);
+
   /*//////////////////////////////////////////////////////////////
                           HATTER FUNCTIONS
   //////////////////////////////////////////////////////////////*/

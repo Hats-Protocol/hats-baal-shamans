@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 // import { console2 } from "forge-std/Test.sol"; // remove before deploy
 import { HatsModule } from "hats-module/HatsModule.sol";
-import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
+import { IHatsStakingShaman } from "src/interfaces/IHatsStakingShaman.sol";
 import { IBaal } from "baal/interfaces/IBaal.sol";
 import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
 
@@ -71,7 +71,6 @@ contract HatsOnboardingShaman is HatsModule {
    * 92      | OWNER_HAT           | uint256 | 32     | this             |
    * --------------------------------------------------------------------+
    */
-
   function BAAL() public pure returns (IBaal) {
     return IBaal(_getArgAddress(72));
   }
@@ -399,7 +398,7 @@ contract HatsOnboardingShaman is HatsModule {
     view
     returns (uint256 amount, address proxy)
   {
-    (amount, proxy) = IRoleStakingShaman(_roleStakingShaman).getStakedSharesAndProxy(member);
+    (amount, proxy) = IHatsStakingShaman(_roleStakingShaman).getStakedSharesAndProxy(member);
   }
 
   /*//////////////////////////////////////////////////////////////

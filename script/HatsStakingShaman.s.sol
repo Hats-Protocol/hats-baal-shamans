@@ -2,13 +2,13 @@
 pragma solidity ^0.8.19;
 
 import { Script, console2 } from "forge-std/Script.sol";
-import { HatsRoleStakingShaman } from "../src/HatsRoleStakingShaman.sol";
+import { HatsStakingShaman } from "../src/HatsStakingShaman.sol";
 import {
   HatsModuleFactory, deployModuleFactory, deployModuleInstance
 } from "lib/hats-module/src/utils/DeployFunctions.sol";
 
 contract DeployImplementation is Script {
-  HatsRoleStakingShaman public implementation;
+  HatsStakingShaman public implementation;
   bytes32 public SALT = keccak256("lets add some salt to this meal");
 
   // default values
@@ -26,14 +26,14 @@ contract DeployImplementation is Script {
     address deployer = vm.rememberKey(privKey);
     vm.startBroadcast(deployer);
 
-    implementation = new HatsRoleStakingShaman{ salt: SALT}(version);
+    implementation = new HatsStakingShaman{ salt: SALT }(version);
 
     vm.stopBroadcast();
 
     if (verbose) {
-      console2.log("HatsRoleStakingShaman:", address(implementation));
+      console2.log("HatsStakingShaman:", address(implementation));
     }
   }
 
-  // forge script script/HatsRoleStakingShaman.s.sol:DeployImplementation -f ethereum --broadcast --verify
+  // forge script script/HatsStakingShaman.s.sol:DeployImplementation -f ethereum --broadcast --verify
 }

@@ -25,6 +25,7 @@ contract HatsOnboardingShamanTest is DeployImplementation, Test {
   IHats public constant HATS = IHats(0x3bc1A0Ad72417f2d411118085256fC53CBdDd137); // v1.hatsprotocol.eth
   string public FACTORY_VERSION = "factory test version";
   string public SHAMAN_VERSION = "shaman test version";
+  uint256 public SALT_NONCE = 1;
 
   error AlreadyBoarded();
   error NotWearingMemberHat();
@@ -98,7 +99,7 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
     initData = abi.encode(_startingShares);
     // deploy the instance
     return HatsOnboardingShaman(
-      deployModuleInstance(factory, address(implementation), _memberHat, otherImmutableArgs, initData)
+      deployModuleInstance(factory, address(implementation), _memberHat, otherImmutableArgs, initData, SALT_NONCE)
     );
   }
 
@@ -170,7 +171,7 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
 
     // predict the shaman's address via the hats module factory
     predictedShamanAddress = factory.getHatsModuleAddress(
-      address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, tophat, roleStakingShaman)
+      address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, tophat, roleStakingShaman), SALT_NONCE
     );
 
     // deploy a test baal with the predicted shaman address
@@ -189,28 +190,28 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
 }
 
 contract Deployment is WithInstanceTest {
-  function test_setAsManagerShaman() public {
+  function test_setAsManagerShaman() public view {
     assertEq(baal.shamans(address(shaman)), 2);
   }
 
-  function test_version() public {
+  function test_version() public view {
     assertEq(shaman.version(), SHAMAN_VERSION);
   }
 
-  function test_startingShares() public {
+  function test_startingShares() public view {
     assertEq(shaman.startingShares(), startingShares);
   }
 
-  function test_baal() public {
+  function test_baal() public view {
     assertEq(address(shaman.BAAL()), address(baal));
     assertEq(address(shaman.BAAL()), predictBaalAddress(SALT));
   }
 
-  function test_sharesToken() public {
+  function test_sharesToken() public view {
     assertEq(address(shaman.SHARES_TOKEN()), address(sharesToken));
   }
 
-  function test_lootToken() public {
+  function test_lootToken() public view {
     assertEq(address(shaman.LOOT_TOKEN()), address(lootToken));
   }
 }

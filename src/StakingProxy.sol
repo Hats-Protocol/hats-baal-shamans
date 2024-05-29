@@ -34,7 +34,6 @@ contract StakingProxy is Clone {
    * 40     | MEMBER              | address | 20     | this               |
    * ---------------------------------------------------------------------+
    */
-
   function ROLE_STAKING_SHAMAN() public pure returns (address) {
     return _getArgAddress(0);
   }
@@ -59,9 +58,4 @@ contract StakingProxy is Clone {
 
     SHARES_TOKEN().delegate(_delegate);
   }
-
-  // TODO ragequit wrapper?
-  // - maybe with cooldown for withdrawing the ragequitted funds
-  // - but what would happen to the ragequit funds if the member is slashed? They could be transferred back to the
-  // treasury
 }

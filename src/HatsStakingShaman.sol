@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-// import { console2 } from "forge-std/Test.sol"; // remove before deploy
-import { HatsModule, IHats } from "hats-module/HatsModule.sol";
-import { IRoleStakingShaman } from "src/interfaces/IRoleStakingShaman.sol";
-import { IHatsEligibility } from "hats-protocol/Interfaces/IHatsEligibility.sol";
-import { IBaal } from "baal/interfaces/IBaal.sol";
-import { IBaalToken } from "baal/interfaces/IBaalToken.sol";
-import { LibClone } from "solady/utils/LibClone.sol";
-import { LibHatId } from "src/LibHatId.sol";
-import { StakingProxy } from "src/StakingProxy.sol";
+import { console2 } from "forge-std/Test.sol"; // remove before deploy
+import { HatsModule, IHats } from "../lib/hats-module/src/HatsModule.sol";
+import { IHatsStakingShaman } from "./interfaces/IHatsStakingShaman.sol";
+import { IHatsEligibility } from "../lib/hats-module/lib/hats-protocol/src/Interfaces/IHatsEligibility.sol";
+import { MultiClaimsHatter } from "../lib/multi-claims-hatter/src/MultiClaimsHatter.sol";
+import { IBaal } from "../lib/baal/contracts/interfaces/IBaal.sol";
+import { IBaalToken } from "../lib/baal/contracts/interfaces/IBaalToken.sol";
+import { LibClone } from "../lib/solady/src/utils/LibClone.sol";
+import { LibHatId } from "./LibHatId.sol";
+import { StakingProxy } from "./StakingProxy.sol";
 
 /**
- * @title Hats Role Staking Shaman
+ * @title Hats Staking Shaman
  * @notice This contract manages staking and unstaking of DAO members' shares for Hats Protocol-powered roles.
  * @dev This contract assumes that the Baal (along with its other approved shamans) is trusted and will not wontonly
  * burn members' shares, whether staked or not staked.
@@ -21,34 +22,29 @@ import { StakingProxy } from "src/StakingProxy.sol";
  * @dev This contract inherits from the HatsModule contract, and is meant to be deployed as a clone from the
  * HatsModuleFactory. To function properly, this contract must wear the {hatId} hat.
  */
-contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
+contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   /*//////////////////////////////////////////////////////////////
                             CUSTOM ERRORS
   //////////////////////////////////////////////////////////////*/
 
-  /// @notice Thrown when a role is already registered
-  error RoleAlreadyRegistered();
-  /// @notice Thrown when a role is not registered or not within the branch of {hatId}
-  error InvalidRole();
   /// @notice Thrown when attempting to register, adjust, or deregister a role that is not mutable
   error InvalidMinStake();
   /// @notice Thrown when attempting to unstake from a registered role without a cooldown period
   error RoleStillRegistered();
-  /// @notice Thrown when attempting to claim a role for which the claimer is not explicitly eligible
-  error NotEligible();
   /// @notice Thrown when attempting to unstake from a role before the cooldown period has ended
   error CooldownNotEnded();
   /// @notice Thrown when attempting to claim or unstake from a role without sufficient stake
   error InsufficientStake();
   /// @notice Thrown when attempting to slash a member who is not in bad standing
   error NotInBadStanding();
-  /// @notice Thrown when attempting to create, register, adjust, or deregister a role from an account not wearing the
-  /// {ROLE_MANAGER_HAT}
-  error NotRoleManager();
-  /// @notice Thrown when attempting to set standing for a member from an account not wearing the {JUDGE_HAT}
+  /// @notice Thrown when attempting to set standing for a member from an account not wearing the judge hat
   error NotJudge();
   /// @notice Thrown when attempting to change a role is not mutable
   error HatImmutable();
+  /// @notice Thrown when attempting to set a role's properties without being an admin of that hat
+  error NotAdmin();
+  /// @notice Thrown when attempting to stake when this contract is not set as a Manager Shaman on the {BAAL}
+  error NotShaman();
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC CONSTANTS
@@ -74,50 +70,39 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
    * 40     | hatId                | uint256 | 32     | HatsModule       |
    * 72     | BAAL                 | address | 20     | this             |
    * 92     | STAKING_PROXY_IMPL   | address | 20     | this             |
-   * 112    | ROLE_MANAGER_HAT     | uint256 | 32     | this             |
-   * 144    | JUDGE_HAT            | uint256 | 32     | this             |
    * --------------------------------------------------------------------+
    */
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function BAAL() public pure returns (IBaal) {
     return IBaal(_getArgAddress(72));
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function STAKING_PROXY_IMPL() public pure returns (address) {
     return _getArgAddress(92);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function ROLE_MANAGER_HAT() public pure returns (uint256) {
-    return _getArgUint256(112);
-  }
-
-  /// @inheritdoc IRoleStakingShaman
-  function JUDGE_HAT() public pure returns (uint256) {
-    return _getArgUint256(144);
-  }
-
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   IBaalToken public SHARES_TOKEN;
 
   /*//////////////////////////////////////////////////////////////
                           MUTABLE STATE
   //////////////////////////////////////////////////////////////*/
 
-  /// @inheritdoc IRoleStakingShaman
-  mapping(uint256 hat => uint112 minStake) public minStakes;
+  uint112 public minStake;
 
-  /// @inheritdoc IRoleStakingShaman
-  mapping(uint256 hat => mapping(address member => Stake stake)) public roleStakes;
-
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   uint32 public cooldownBuffer;
+
+  uint256 public judge;
+
+  /// @inheritdoc IHatsStakingShaman
+  mapping(address member => Stake stake) public stakes;
 
   /// @dev Internal tracker for member standing by hat, exposed publicly via {getWearerStatus}.
   /// Default is good standing (true).
-  mapping(uint256 hat => mapping(address member => bool badStanding)) internal badStandings;
+  mapping(address member => bool badStanding) internal badStandings;
 
   /*//////////////////////////////////////////////////////////////
                           CONSTRUCTOR
@@ -133,124 +118,43 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   function _setUp(bytes calldata _initData) internal override {
     SHARES_TOKEN = IBaalToken(BAAL().sharesToken());
 
-    cooldownBuffer = abi.decode(_initData, (uint32));
+    (cooldownBuffer, judge, minStake) = abi.decode(_initData, (uint32, uint256, uint112));
+
+    _setJudge(judge);
+    _setMinStake(minStake);
   }
 
   /*//////////////////////////////////////////////////////////////
-                        PUBLIC HATTER LOGIC
+                            PUBLIC ADMIN LOGIC
   //////////////////////////////////////////////////////////////*/
 
-  /// @inheritdoc IRoleStakingShaman
-  function createRole(
-    string memory _details,
-    uint32 _maxSupply,
-    address _eligibility,
-    address _toggle,
-    bool _mutable,
-    string memory _imageURI,
-    uint112 _minStake
-  ) external onlyRoleManager returns (uint256 _hat) {
-    // create the new role
-    _hat = _createRole(hatId(), _details, _maxSupply, _eligibility, _toggle, _mutable, _imageURI, _minStake);
+  /// @inheritdoc IHatsStakingShaman
+  function setMinStake(uint112 _minStake) external onlyAdmin hatIsMutable {
+    _setMinStake(_minStake);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function createSubRole(
-    uint256 _admin,
-    string memory _details,
-    uint32 _maxSupply,
-    address _eligibility,
-    address _toggle,
-    bool _mutable,
-    string memory _imageURI,
-    uint112 _minStake
-  ) external onlyRoleManager returns (uint256 _hat) {
-    // create the new role
-    _hat = _createRole(_admin, _details, _maxSupply, _eligibility, _toggle, _mutable, _imageURI, _minStake);
-  }
-
-  /// @inheritdoc IRoleStakingShaman
-  function registerRole(uint256 _hat, uint112 _minStake, address _eligibility)
-    external
-    onlyRoleManager
-    hatIsMutable(_hat)
-  {
-    // ensure the role is in hatId()'s branch
-    if (!_inBranch(_hat)) revert InvalidRole();
-    // ensure the role hasn't already been added or created
-    if (minStakes[_hat] != 0) revert RoleAlreadyRegistered();
-
-    // change the hat's eligibility module, if set
-    if (_eligibility > address(0)) HATS().changeHatEligibility(_hat, _eligibility);
-
-    _setMinStake(_hat, _minStake);
-  }
-
-  /// @inheritdoc IRoleStakingShaman
-  function deregisterRole(uint256 _hat) external onlyRoleManager hatIsMutable(_hat) {
-    _setMinStake(_hat, 0);
-  }
-
-  /// @inheritdoc IRoleStakingShaman
-  function setMinStake(uint256 _hat, uint112 _minStake) external validRole(_hat) onlyRoleManager hatIsMutable(_hat) {
-    _setMinStake(_hat, _minStake);
+  function setJudge(uint256 _judge) external onlyAdmin hatIsMutable {
+    _setJudge(_judge);
   }
 
   /*//////////////////////////////////////////////////////////////
-                        INTERNAL HATTER LOGIC
+                        INTERNAL ADMIN LOGIC
   //////////////////////////////////////////////////////////////*/
-
-  /**
-   * @dev Internal function to create a new role as a direct child or as a lower-level descendent of {hatId}
-   * @param _admin The hatId of the new role's admin
-   * @param _details The details of the new role
-   * @param _maxSupply The max supply of the new role
-   * @param _eligibility The address of the new role's eligibility module
-   * @param _toggle The address of the new role's toggle module
-   * @param _mutable Whether the new role is mutable
-   * @param _imageURI The image URI of the new role
-   * @param _minStake The staking requirement for the new role
-   * @return _hat The hatId of the new role
-   */
-  function _createRole(
-    uint256 _admin,
-    string memory _details,
-    uint32 _maxSupply,
-    address _eligibility,
-    address _toggle,
-    bool _mutable,
-    string memory _imageURI,
-    uint112 _minStake
-  ) internal returns (uint256 _hat) {
-    // create the new hat
-    _hat = HATS().createHat(_admin, _details, _maxSupply, _eligibility, _toggle, _mutable, _imageURI);
-    // register the role by setting its minStake
-    _setMinStake(_hat, _minStake);
-  }
 
   /**
    * @dev Internal function to set the staking requirement for a role, defined by a hatId
-   * @param _hat The role to set the staking requirement for
    * @param _minStake The new staking requirement
    */
-  function _setMinStake(uint256 _hat, uint112 _minStake) internal {
-    minStakes[_hat] = _minStake;
+  function _setMinStake(uint112 _minStake) internal {
+    minStake = _minStake;
 
-    emit MinStakeSet(_hat, _minStake);
+    emit MinStakeSet(_minStake);
   }
 
-  /**
-   * @notice Internal helper function to check if a given `_hat` is a descendent — in the branch of — {hatId}
-   */
-  function _inBranch(uint256 _hat) internal pure returns (bool) {
-    // {hatId} is our branch root
-    uint256 branchRoot = hatId();
-    // get the hat level of our branch
-    uint32 branchRootLevel = LibHatId.getLocalHatLevel(branchRoot);
-    // get the admin of _hat at that level
-    uint256 hatAdmin = LibHatId.getAdminAtLocalLevel(_hat, branchRootLevel);
-    // _hat is in our branch if its admin *is* our branch id
-    return hatAdmin == branchRoot;
+  function _setJudge(uint256 _judge) internal {
+    judge = _judge;
+
+    emit JudgeSet(_judge);
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -258,105 +162,59 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   //////////////////////////////////////////////////////////////*/
 
   /// @inheritdoc IHatsEligibility
-  function getWearerStatus(address _member, uint256 _hatId)
+  function getWearerStatus(address _member, uint256 /*_hatId*/ )
     external
     view
     override
     returns (bool eligible, bool standing)
   {
     // standing is the inverse of badStandings
-    standing = !badStandings[_hatId][_member];
-    // eligible if member stake for the hat being >= minStake, unless standing is false
-    eligible = standing ? _hasSufficientStake(_hatId, _member) : false;
+    standing = !badStandings[_member];
+    // eligible if member has sufficienet stake and is in good standing
+    eligible = standing && _hasSufficientStake(_member);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function setStanding(uint256 _hat, address _member, bool _standing) external validRole(_hat) onlyJudge {
+  /// @inheritdoc IHatsStakingShaman
+  function setStanding(address _member, bool _standing) external onlyJudge {
     // standing is the inverse of badStandings
-    badStandings[_hat][_member] = !_standing;
+    badStandings[_member] = !_standing;
   }
 
   /**
    * @dev Checks if _member has sufficient stake for _hat
-   * @param _hat The hat to check stake for
    * @param _member The member to check stake for
    * return Whether _member has sufficient stake for _hat
    */
-  function _hasSufficientStake(uint256 _hat, address _member) internal view returns (bool) {
+  function _hasSufficientStake(address _member) internal view returns (bool) {
     // eligible if member stake for the hat being >= minStake
-    return roleStakes[_hat][_member].stakedAmount >= minStakes[_hat];
-  }
-
-  /**
-   * @notice Checks if _wearer is explicitly eligible to wear the hat.
-   * @dev Explicit eligibility can only come from a mechanistic eligitibility module, ie a contract that implements
-   * IHatsEligibility
-   * @param _hat The hat to check eligibility for
-   * @param _eligibility The address of the hat's eligibility module
-   * @param _wearer The address of the would-be wearer to check for eligibility
-   */
-  function _isExplicitlyEligible(uint256 _hat, address _eligibility, address _wearer)
-    internal
-    view
-    returns (bool eligible)
-  {
-    // get _wearer's eligibility status from the eligibility module
-    bool standing;
-    (bool success, bytes memory returndata) =
-      _eligibility.staticcall(abi.encodeWithSignature("getWearerStatus(address,uint256)", _wearer, _hat));
-
-    /* 
-    * if function call succeeds with data of length == 64, then we know the contract exists 
-    * and has the getWearerStatus function (which returns two words).
-    * But — since function selectors don't include return types — we still can't assume that the return data is two
-    booleans, 
-    * so we treat it as a uint so it will always safely decode without throwing.
-    */
-    if (success && returndata.length == 64) {
-      // check the returndata manually
-      (uint256 firstWord, uint256 secondWord) = abi.decode(returndata, (uint256, uint256));
-      // returndata is valid
-      if (firstWord < 2 && secondWord < 2) {
-        standing = (secondWord == 1) ? true : false;
-        // never eligible if in bad standing
-        eligible = (standing && firstWord == 1) ? true : false;
-      }
-      // returndata is invalid
-      else {
-        // false since _wearer is not explicitly eligible
-        eligible = false;
-      }
-    } else {
-      // false since _wearer is not explicitly eligible
-      eligible = false;
-    }
+    return stakes[_member].stakedAmount >= minStake;
   }
 
   /*//////////////////////////////////////////////////////////////
                         PUBLIC STAKING LOGIC
   //////////////////////////////////////////////////////////////*/
 
-  /// @inheritdoc IRoleStakingShaman
-  function stakeOnRole(uint256 _hat, uint112 _amount, address _delegate) external validRole(_hat) {
-    _stakeOnRole(msg.sender, _hat, _amount, _delegate);
+  /// @inheritdoc IHatsStakingShaman
+  function stake(uint112 _amount, address _delegate) external {
+    _stake(msg.sender, _amount, _delegate);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function claimRole(uint256 _hat) external validRole(_hat) {
-    _claimRole(msg.sender, _hat);
+  /// @inheritdoc IHatsStakingShaman
+  function claim(MultiClaimsHatter _claimsHatter) external {
+    _claim(msg.sender, _claimsHatter);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function stakeAndClaimRole(uint256 _hat, uint112 _amount, address _delegate) external validRole(_hat) {
-    _stakeOnRole(msg.sender, _hat, _amount, _delegate);
-    _claimRole(msg.sender, _hat);
+  /// @inheritdoc IHatsStakingShaman
+  function stakeAndClaim(uint112 _amount, address _delegate, MultiClaimsHatter _claimsHatter) external {
+    _stake(msg.sender, _amount, _delegate);
+    _claim(msg.sender, _claimsHatter);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function beginUnstakeFromRole(uint256 _hat, uint112 _amount) external {
+  /// @inheritdoc IHatsStakingShaman
+  function beginUnstake(uint112 _amount) external {
     // if caller is in bad standing, slash them and return
-    if (!HATS().isInGoodStanding(msg.sender, _hat)) {
-      _slashStake(msg.sender, _hat);
+    if (!HATS().isInGoodStanding(msg.sender, hatId())) {
+      _slashStake(msg.sender);
       return;
     }
 
@@ -365,31 +223,31 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
      * shares in their Staking Proxy. The latter value may be too low if the shares were burned directly by the Baal or
      * another shaman.
      */
-    Stake storage stake = roleStakes[_hat][msg.sender];
-    if (stake.stakedAmount < _amount || SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(msg.sender)) < _amount) {
+    Stake storage s = stakes[msg.sender];
+    if (s.stakedAmount < _amount || SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(msg.sender)) < _amount) {
       revert InsufficientStake();
     }
     // caller must not be in cooldown period for _hat
-    if (stake.unstakingAmount > 0) revert CooldownNotEnded();
+    if (s.unstakingAmount > 0) revert CooldownNotEnded();
 
     // otherwise, proceed with the unstake, moving their stake for _hat to the cooldown queue
-    stake.unstakingAmount = _amount;
+    s.unstakingAmount = _amount;
     unchecked {
       /// @dev Safe until 2106
-      stake.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod();
+      s.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod();
       /// @dev Safe since stake is sufficient
-      stake.stakedAmount -= _amount;
+      s.stakedAmount -= _amount;
     }
 
     // log the unstake initiation
-    emit UnstakeBegun(msg.sender, _hat, _amount);
+    emit UnstakeBegun(msg.sender, _amount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function resetUnstakeFromRole(uint256 _hat, uint112 _amount) external {
+  /// @inheritdoc IHatsStakingShaman
+  function resetUnstake(uint112 _newUnstakingAmount) external {
     // if caller is in bad standing, slash them and return
-    if (!HATS().isInGoodStanding(msg.sender, _hat)) {
-      _slashStake(msg.sender, _hat);
+    if (!HATS().isInGoodStanding(msg.sender, hatId())) {
+      _slashStake(msg.sender);
       return;
     }
 
@@ -397,54 +255,57 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
      * @dev caller must have at least _amount stake for _hat, both in internal roleStake accounting (sum of staked and
      * unstaking) as well as their actual shares in their Staking Proxy.
      */
-    Stake storage stake = roleStakes[_hat][msg.sender];
-    uint112 oldUnstakingAmount = stake.unstakingAmount;
-    uint256 allStaked = stake.stakedAmount + oldUnstakingAmount;
-    if (allStaked < _amount || SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(msg.sender)) < _amount) {
+    Stake storage s = stakes[msg.sender];
+    uint112 oldUnstakingAmount = s.unstakingAmount;
+    uint256 allStaked = s.stakedAmount + oldUnstakingAmount;
+    if (
+      allStaked < _newUnstakingAmount
+        || SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(msg.sender)) < _newUnstakingAmount
+    ) {
       revert InsufficientStake();
     }
 
     unchecked {
-      if (oldUnstakingAmount > _amount) {
+      if (oldUnstakingAmount > _newUnstakingAmount) {
         // if the new unstaking amount is less than the old one, we need to increase the stakedAmount
         /// @dev Should not overflow given the condition
-        stake.stakedAmount += oldUnstakingAmount - _amount;
+        s.stakedAmount += oldUnstakingAmount - _newUnstakingAmount;
       } else {
         // if the new unstaking amount is greater than the old one, we need to decrease the stakedAmount
         /// @dev Should not underflow given the condition
-        stake.stakedAmount -= _amount - oldUnstakingAmount;
+        s.stakedAmount -= _newUnstakingAmount - oldUnstakingAmount;
       }
       // update the unstaking amount to the new value
-      stake.unstakingAmount = _amount;
+      s.unstakingAmount = _newUnstakingAmount;
 
       /// @dev Should not overflow until 2106
-      stake.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod();
+      s.canUnstakeAfter = uint32(block.timestamp) + cooldownPeriod();
     }
 
     // log the unstake initiation
-    emit UnstakeBegun(msg.sender, _hat, _amount);
+    emit UnstakeBegun(msg.sender, _newUnstakingAmount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function completeUnstakeFromRole(uint256 _hat, address _member) external {
+  /// @inheritdoc IHatsStakingShaman
+  function completeUnstake(address _member) external {
     // // if _member is in bad standing, slash them and return
-    if (!HATS().isInGoodStanding(_member, _hat)) {
-      _slashStake(_member, _hat);
+    if (!HATS().isInGoodStanding(_member, hatId())) {
+      _slashStake(_member);
       return;
     }
 
-    Stake storage stake = roleStakes[_hat][_member];
+    Stake storage s = stakes[_member];
     // cooldown period must be over
-    if (stake.canUnstakeAfter > block.timestamp) revert CooldownNotEnded();
+    if (s.canUnstakeAfter > block.timestamp) revert CooldownNotEnded();
     // caller must have sufficient total stake and sufficient actual shares in their staking proxy
-    uint112 amount = stake.unstakingAmount;
+    uint112 amount = s.unstakingAmount;
     address proxy = _calculateStakingProxyAddress(_member);
 
     if (SHARES_TOKEN.balanceOf(proxy) < amount) revert InsufficientStake();
 
     // remove their stake from the cooldown queue
-    stake.unstakingAmount = 0;
-    stake.canUnstakeAfter = 0;
+    s.unstakingAmount = 0;
+    s.canUnstakeAfter = 0;
 
     // transfer their amount of shares from the _member's staking proxy to _member
     /// @dev will revert if insufficient balance in proxy, which could happen if they got burned directly by another
@@ -452,48 +313,55 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     _transferShares(proxy, _member, amount);
 
     // log the unstake
-    emit UnstakeCompleted(_member, _hat, amount);
+    emit UnstakeCompleted(_member, amount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function unstakeFromDeregisteredRole(uint256 _hat) external {
-    if (minStakes[_hat] > 0) revert RoleStillRegistered();
+  /// @inheritdoc IHatsStakingShaman
+  function unstakeFromDeregisteredRole() external {
+    if (minStake > 0 && HATS().getHatEligibilityModule(hatId()) == address(this)) revert RoleStillRegistered();
 
     // if caller is in bad standing, slash them and return
-    if (!HATS().isInGoodStanding(msg.sender, _hat)) {
-      _slashStake(msg.sender, _hat);
+    if (!HATS().isInGoodStanding(msg.sender, hatId())) {
+      console2.log("slash");
+      _slashStake(msg.sender);
       return;
     }
 
     // get the remaining staked balance from their proxy
     (uint256 proxyBalance, address proxy) = getStakedSharesAndProxy(msg.sender);
     // get their current stake for _hat
-    Stake storage stake = roleStakes[_hat][msg.sender];
-    uint112 allStaked = stake.stakedAmount + stake.unstakingAmount;
+    Stake storage s = stakes[msg.sender];
+    uint112 allStaked = s.stakedAmount + s.unstakingAmount;
 
     // Amount to unstake is the lesser of their allStaked and their proxy balance. This ensures that they can't use this
     // to withdraw their shares staked to other roles
     uint112 amount = allStaked < proxyBalance ? allStaked : uint112(proxyBalance);
 
     // clear their staked amount, and also clear any cooldown
-    stake.stakedAmount = 0;
-    stake.unstakingAmount = 0;
-    stake.canUnstakeAfter = 0;
+    s.stakedAmount = 0;
+    s.unstakingAmount = 0;
+    s.canUnstakeAfter = 0;
 
     // transfer their amount to unstake from the msg.sender's staking proxy to msg.sender
     if (amount > 0) _transferShares(proxy, msg.sender, amount);
 
     // log the unstake
-    emit UnstakeCompleted(msg.sender, _hat, amount);
+    emit UnstakeCompleted(msg.sender, amount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
-  function slash(address _member, uint256 _hat) external validRole(_hat) {
+  /// @inheritdoc IHatsStakingShaman
+  function slash(address _member) external {
     // member must be in bad standing for _hat
-    if (HATS().isInGoodStanding(_member, _hat)) revert NotInBadStanding();
+    if (HATS().isInGoodStanding(_member, hatId())) revert NotInBadStanding();
 
     // slash their stake
-    _slashStake(_member, _hat);
+    _slashStake(_member);
+  }
+
+  /// @inheritdoc IHatsStakingShaman
+  function delegate(address _newDelegate) external {
+    address proxy = _calculateStakingProxyAddress(msg.sender);
+    StakingProxy(proxy).delegate(_newDelegate);
   }
 
   /*//////////////////////////////////////////////////////////////
@@ -504,13 +372,15 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
    * @dev Internal function for staking on a role. Called by {stakeOnRole} and {stakeAndClaimRole}. Staked shares are
    * held in a staking proxy contract unique to `_member`.
    * @param _member The member staking on the role
-   * @param _hat The role to stake on
    * @param _amount The amount of shares to stake, in uint112 ERC20 decimals
    * @param _delegate The address to delegate the staked share votes to
    */
-  function _stakeOnRole(address _member, uint256 _hat, uint112 _amount, address _delegate) internal {
-    // add _amount to _member's stake for _hat
-    roleStakes[_hat][_member].stakedAmount += _amount;
+  function _stake(address _member, uint112 _amount, address _delegate) internal {
+    // don't attempt staking staking unless this contract is set as a manager shaman on the Baal
+    if (!isManagerShaman()) revert NotShaman();
+
+    // add _amount to _member's stake
+    stakes[_member].stakedAmount += _amount;
 
     // calculate _member's staking proxy address
     address proxy = _calculateStakingProxyAddress(_member);
@@ -524,32 +394,20 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     StakingProxy(proxy).delegate(_delegate);
 
     // log the stake
-    emit Staked(_member, _hat, _amount);
+    emit Staked(_member, _amount);
   }
 
   /**
-   * @dev Claimer must be explicitly eligible for _hat in order to wear it. If _hat's eligibility module
-   * is this contract, the only criterion is sufficient stake. If it's another contract, we need to check for explicit
-   * eligibility.
-   * NOTE: Developers of eligibility modules for stakeable roles should include a check to this contract as one of
-   * their eligibility criteria
+   * @dev Internal function to claim a hat. This call will revert if...
+   *       - the hat is not "claimable-for" in the MultiClaimsHatter, or
+   *       - caller is currently wearing the hat, or
+   *       - caller is not eligible for this hat according to this contract, i.e. insufficient stake, or
+   *       - caller is not eligible for this hat according to or other chained eligibility modules
    * @param _claimer The address claiming the role
-   * @param _hat The role to claim
+   * @param _claimsHatter The claimsHatter to use for claiming
    */
-  function _claimRole(address _claimer, uint256 _hat) internal {
-    // get _hat's eligibility module
-    address eligibility = HATS().getHatEligibilityModule(_hat);
-
-    if (eligibility == address(this)) {
-      // check this contract for eligibility
-      if (!_hasSufficientStake(_hat, _claimer)) revert InsufficientStake();
-    } else {
-      // check the _hat's eligibility module for explicity eligibility
-      if (!_isExplicitlyEligible(_hat, eligibility, _claimer)) revert NotEligible();
-    }
-
-    // mint hat to _claimer
-    HATS().mintHat(_hat, _claimer);
+  function _claim(address _claimer, MultiClaimsHatter _claimsHatter) internal {
+    _claimsHatter.claimHatFor(hatId(), _claimer);
 
     /// @dev We don't log claiming since its already logged by the ERC1155.TransferSingle event emitted by HATS.mintHat
   }
@@ -557,29 +415,28 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   /**
    * @dev Internal function to slash a member's stake for a role, if they are in bad standing.
    * @param _member The member to slash
-   * @param _hat The role to slash for
    */
-  function _slashStake(address _member, uint256 _hat) internal {
+  function _slashStake(address _member) internal {
     // set _member's stake for _hat to 0
-    Stake storage stake = roleStakes[_hat][_member];
+    Stake storage s = stakes[_member];
     uint112 amount;
 
-    if (stake.unstakingAmount > 0) {
+    if (s.unstakingAmount > 0) {
       // _member is in cooldown, so we need to account for their unstakingAmount
       unchecked {
         // Should not overflow since these are two components of a staked amount total, which did not previously
         // overflow
-        amount = stake.stakedAmount + stake.unstakingAmount;
+        amount = s.stakedAmount + s.unstakingAmount;
       }
       // and clear their cooldown
-      stake.unstakingAmount = 0;
-      stake.canUnstakeAfter = 0;
+      s.unstakingAmount = 0;
+      s.canUnstakeAfter = 0;
     } else {
       // _member is not in cooldown, so we just care about their stakedAmount
-      amount = stake.stakedAmount;
+      amount = s.stakedAmount;
     }
     // in either case, we clear their stakedAmount
-    stake.stakedAmount = 0;
+    s.stakedAmount = 0;
 
     // make sure the actual amount to burn is not greater than the member's proxy balance
     // (which could happen if the baal or another shaman burned some directly)
@@ -589,18 +446,15 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     // burn the shares
     _burnShares(_member, amount);
 
-    // burn their hat (it's already been dynamically revoked by the eligibility module, but now we fully burn it)
-    HATS().checkHatWearerStatus(_hat, _member);
-
     // log the slash
-    emit Slashed(_member, _hat, amount);
+    emit Slashed(_member, amount);
   }
 
   /*//////////////////////////////////////////////////////////////
                           PUBLIC GETTERS
   //////////////////////////////////////////////////////////////*/
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function cooldownPeriod() public view returns (uint32) {
     unchecked {
       /// @dev Reasonable Baal voting + grace period will not exceed 2**32 seconds (~136 years)
@@ -608,13 +462,13 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
     }
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function getStakedSharesAndProxy(address _member) public view returns (uint112 amount, address stakingProxy) {
     stakingProxy = _calculateStakingProxyAddress(_member);
     amount = uint112(SHARES_TOKEN.balanceOf(stakingProxy));
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function memberStakes(address _member) public view returns (uint112 totalStaked) {
     return uint112(SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(_member)));
   }
@@ -696,27 +550,33 @@ contract HatsRoleStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibili
   }
 
   /*//////////////////////////////////////////////////////////////
+                    ADDITIONAL HELPER FUNCTIONS
+  //////////////////////////////////////////////////////////////*/
+
+  /**
+   * @notice Check if this contract is set as a manager shaman on the BAAL
+   */
+  function isManagerShaman() public view returns (bool) {
+    return BAAL().isManager(address(this));
+  }
+
+  /*//////////////////////////////////////////////////////////////
                             MODIFIERS
   //////////////////////////////////////////////////////////////*/
 
-  modifier onlyRoleManager() {
-    if (!HATS().isWearerOfHat(msg.sender, ROLE_MANAGER_HAT())) revert NotRoleManager();
+  modifier onlyAdmin() {
+    if (!HATS().isAdminOfHat(msg.sender, hatId())) revert NotAdmin();
     _;
   }
 
   modifier onlyJudge() {
-    if (!HATS().isWearerOfHat(msg.sender, JUDGE_HAT())) revert NotJudge();
+    if (!HATS().isWearerOfHat(msg.sender, judge)) revert NotJudge();
     _;
   }
 
-  modifier validRole(uint256 _hat) {
-    if (minStakes[_hat] == 0) revert InvalidRole();
-    _;
-  }
-
-  modifier hatIsMutable(uint256 _hat) {
+  modifier hatIsMutable() {
     bool mutable_;
-    (,,,,,,, mutable_,) = HATS().viewHat(_hat);
+    (,,,,,,, mutable_,) = HATS().viewHat(hatId());
     if (!mutable_) revert HatImmutable();
     _;
   }

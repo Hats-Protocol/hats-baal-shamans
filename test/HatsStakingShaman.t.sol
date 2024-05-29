@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 import { Test, console2 } from "forge-std/Test.sol";
 import { HatsStakingShaman, LibClone } from "../src/HatsStakingShaman.sol";
-import { IRoleStakingShaman } from "../src/interfaces/IRoleStakingShaman.sol";
+import { IHatsStakingShaman } from "../src/interfaces/IHatsStakingShaman.sol";
 import {
   MultiClaimsHatter,
   MultiClaimsHatter_NotExplicitlyEligible
@@ -1156,6 +1156,8 @@ contract CompleteUnstaking is WithClaimsHatter {
     assertEq(shaman.memberStakes(member1), 1, "member stake");
     assertEq(shaman.SHARES_TOKEN().getVotes(member1), 600, "votes");
   }
+
+  // TODO tests for resetUnstake() new vs. old amount variants
 }
 
 contract UnstakingFromDeregisteredRole is WithClaimsHatter {

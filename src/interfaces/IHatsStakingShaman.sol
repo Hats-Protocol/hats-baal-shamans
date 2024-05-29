@@ -5,7 +5,7 @@ import { IBaal } from "../../lib/baal/contracts/interfaces/IBaal.sol";
 import { IBaalToken } from "../../lib/baal/contracts/interfaces/IBaalToken.sol";
 import { MultiClaimsHatter } from "../../lib/multi-claims-hatter/src/MultiClaimsHatter.sol";
 
-interface IRoleStakingShaman {
+interface IHatsStakingShaman {
   /*//////////////////////////////////////////////////////////////
                               EVENTS
   //////////////////////////////////////////////////////////////*/

@@ -3,7 +3,7 @@ pragma solidity ^0.8.19;
 
 import { console2 } from "forge-std/Test.sol"; // remove before deploy
 import { HatsModule, IHats } from "../lib/hats-module/src/HatsModule.sol";
-import { IRoleStakingShaman } from "./interfaces/IRoleStakingShaman.sol";
+import { IHatsStakingShaman } from "./interfaces/IHatsStakingShaman.sol";
 import { IHatsEligibility } from "../lib/hats-module/lib/hats-protocol/src/Interfaces/IHatsEligibility.sol";
 import { MultiClaimsHatter } from "../lib/multi-claims-hatter/src/MultiClaimsHatter.sol";
 import { IBaal } from "../lib/baal/contracts/interfaces/IBaal.sol";
@@ -22,7 +22,7 @@ import { StakingProxy } from "./StakingProxy.sol";
  * @dev This contract inherits from the HatsModule contract, and is meant to be deployed as a clone from the
  * HatsModuleFactory. To function properly, this contract must wear the {hatId} hat.
  */
-contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
+contract HatsStakingShaman is IHatsStakingShaman, HatsModule, IHatsEligibility {
   /*//////////////////////////////////////////////////////////////
                             CUSTOM ERRORS
   //////////////////////////////////////////////////////////////*/
@@ -73,17 +73,17 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
    * --------------------------------------------------------------------+
    */
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function BAAL() public pure returns (IBaal) {
     return IBaal(_getArgAddress(72));
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function STAKING_PROXY_IMPL() public pure returns (address) {
     return _getArgAddress(92);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   IBaalToken public SHARES_TOKEN;
 
   /*//////////////////////////////////////////////////////////////
@@ -92,12 +92,12 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
 
   uint112 public minStake;
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   uint32 public cooldownBuffer;
 
   uint256 public judge;
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   mapping(address member => Stake stake) public stakes;
 
   /// @dev Internal tracker for member standing by hat, exposed publicly via {getWearerStatus}.
@@ -128,7 +128,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
                             PUBLIC ADMIN LOGIC
   //////////////////////////////////////////////////////////////*/
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function setMinStake(uint112 _minStake) external onlyAdmin hatIsMutable {
     _setMinStake(_minStake);
   }
@@ -174,7 +174,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
     eligible = standing && _hasSufficientStake(_member);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function setStanding(address _member, bool _standing) external onlyJudge {
     // standing is the inverse of badStandings
     badStandings[_member] = !_standing;
@@ -194,23 +194,23 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
                         PUBLIC STAKING LOGIC
   //////////////////////////////////////////////////////////////*/
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function stake(uint112 _amount, address _delegate) external {
     _stake(msg.sender, _amount, _delegate);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function claim(MultiClaimsHatter _claimsHatter) external {
     _claim(msg.sender, _claimsHatter);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function stakeAndClaim(uint112 _amount, address _delegate, MultiClaimsHatter _claimsHatter) external {
     _stake(msg.sender, _amount, _delegate);
     _claim(msg.sender, _claimsHatter);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function beginUnstake(uint112 _amount) external {
     // if caller is in bad standing, slash them and return
     if (!HATS().isInGoodStanding(msg.sender, hatId())) {
@@ -243,7 +243,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
     emit UnstakeBegun(msg.sender, _amount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function resetUnstake(uint112 _newUnstakingAmount) external {
     // if caller is in bad standing, slash them and return
     if (!HATS().isInGoodStanding(msg.sender, hatId())) {
@@ -286,7 +286,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
     emit UnstakeBegun(msg.sender, _newUnstakingAmount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function completeUnstake(address _member) external {
     // // if _member is in bad standing, slash them and return
     if (!HATS().isInGoodStanding(_member, hatId())) {
@@ -316,7 +316,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
     emit UnstakeCompleted(_member, amount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function unstakeFromDeregisteredRole() external {
     if (minStake > 0 && HATS().getHatEligibilityModule(hatId()) == address(this)) revert RoleStillRegistered();
 
@@ -349,7 +349,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
     emit UnstakeCompleted(msg.sender, amount);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function slash(address _member) external {
     // member must be in bad standing for _hat
     if (HATS().isInGoodStanding(_member, hatId())) revert NotInBadStanding();
@@ -358,7 +358,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
     _slashStake(_member);
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function delegate(address _newDelegate) external {
     address proxy = _calculateStakingProxyAddress(msg.sender);
     StakingProxy(proxy).delegate(_newDelegate);
@@ -454,7 +454,7 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
                           PUBLIC GETTERS
   //////////////////////////////////////////////////////////////*/
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function cooldownPeriod() public view returns (uint32) {
     unchecked {
       /// @dev Reasonable Baal voting + grace period will not exceed 2**32 seconds (~136 years)
@@ -462,13 +462,13 @@ contract HatsStakingShaman is IRoleStakingShaman, HatsModule, IHatsEligibility {
     }
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function getStakedSharesAndProxy(address _member) public view returns (uint112 amount, address stakingProxy) {
     stakingProxy = _calculateStakingProxyAddress(_member);
     amount = uint112(SHARES_TOKEN.balanceOf(stakingProxy));
   }
 
-  /// @inheritdoc IRoleStakingShaman
+  /// @inheritdoc IHatsStakingShaman
   function memberStakes(address _member) public view returns (uint112 totalStaked) {
     return uint112(SHARES_TOKEN.balanceOf(_calculateStakingProxyAddress(_member)));
   }

@@ -25,6 +25,7 @@ contract HatsOnboardingShamanTest is DeployImplementation, Test {
   IHats public constant HATS = IHats(0x3bc1A0Ad72417f2d411118085256fC53CBdDd137); // v1.hatsprotocol.eth
   string public FACTORY_VERSION = "factory test version";
   string public SHAMAN_VERSION = "shaman test version";
+  uint256 public SALT_NONCE = 1;
 
   error AlreadyBoarded();
   error NotWearingMemberHat();
@@ -42,6 +43,7 @@ contract HatsOnboardingShamanTest is DeployImplementation, Test {
   event Kicked(address member, uint256 sharesBurned, uint256 lootBurned);
   event KickedBatch(address[] members, uint256[] sharesBurned, uint256[] lootBurned);
   event StartingSharesSet(uint256 newStartingShares);
+  event RoleStakingShamanSet(address newRoleStakingShaman);
 
   function setUp() public virtual {
     // create and activate a fork, at BLOCK_NUMBER
@@ -83,6 +85,7 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
 
   address public predictedBaalAddress;
   address public predictedShamanAddress;
+  address public roleStakingShaman;
 
   uint256 public constant MIN_STARTING_SHARES = 1e18;
 
@@ -91,12 +94,12 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
     returns (HatsOnboardingShaman)
   {
     // encode the other immutable args as packed bytes
-    otherImmutableArgs = abi.encodePacked(_baal, _ownerHat);
+    otherImmutableArgs = abi.encodePacked(_baal, _ownerHat, roleStakingShaman);
     // encoded the initData as unpacked bytes -- for HatsOnboardingShaman, we just need any non-empty bytes
     initData = abi.encode(_startingShares);
     // deploy the instance
     return HatsOnboardingShaman(
-      deployModuleInstance(factory, address(implementation), _memberHat, otherImmutableArgs, initData)
+      deployModuleInstance(factory, address(implementation), _memberHat, otherImmutableArgs, initData, SALT_NONCE)
     );
   }
 
@@ -167,8 +170,9 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
     predictedBaalAddress = predictBaalAddress(SALT);
 
     // predict the shaman's address via the hats module factory
-    predictedShamanAddress =
-      factory.getHatsModuleAddress(address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, tophat));
+    predictedShamanAddress = factory.getHatsModuleAddress(
+      address(implementation), memberHat, abi.encodePacked(predictedBaalAddress, tophat, roleStakingShaman), SALT_NONCE
+    );
 
     // deploy a test baal with the predicted shaman address
     baal = deployBaalWithShaman("TEST_BAAL", "TEST_BAAL", SALT, predictedShamanAddress);
@@ -186,28 +190,28 @@ contract WithInstanceTest is HatsOnboardingShamanTest {
 }
 
 contract Deployment is WithInstanceTest {
-  function test_setAsManagerShaman() public {
+  function test_setAsManagerShaman() public view {
     assertEq(baal.shamans(address(shaman)), 2);
   }
 
-  function test_version() public {
+  function test_version() public view {
     assertEq(shaman.version(), SHAMAN_VERSION);
   }
 
-  function test_startingShares() public {
+  function test_startingShares() public view {
     assertEq(shaman.startingShares(), startingShares);
   }
 
-  function test_baal() public {
+  function test_baal() public view {
     assertEq(address(shaman.BAAL()), address(baal));
     assertEq(address(shaman.BAAL()), predictBaalAddress(SALT));
   }
 
-  function test_sharesToken() public {
+  function test_sharesToken() public view {
     assertEq(address(shaman.SHARES_TOKEN()), address(sharesToken));
   }
 
-  function test_lootToken() public {
+  function test_lootToken() public view {
     assertEq(address(shaman.LOOT_TOKEN()), address(lootToken));
   }
 }
@@ -993,3 +997,26 @@ contract SetStartingShares is WithInstanceTest {
     assertEq(shaman.startingShares(), startingShares);
   }
 }
+
+contract SetRoleStakingShaman is WithInstanceTest {
+  address public newRoleStakingShaman = makeAddr("roleStakingShaman");
+
+  function test_owner_canSetRoleStakingShaman() public {
+    vm.prank(dao);
+    vm.expectEmit();
+    emit RoleStakingShamanSet(newRoleStakingShaman);
+    shaman.setRoleStakingShaman(newRoleStakingShaman);
+
+    assertEq(shaman.roleStakingShaman(), newRoleStakingShaman);
+  }
+
+  function test_nonOwner_reverts() public {
+    vm.prank(nonWearer);
+    vm.expectRevert(NotOwner.selector);
+    shaman.setRoleStakingShaman(newRoleStakingShaman);
+
+    assertEq(shaman.roleStakingShaman(), address(0));
+  }
+}
+
+// TODO test with HatsRoleStakingShaman
